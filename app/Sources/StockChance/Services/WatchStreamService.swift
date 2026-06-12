@@ -1,21 +1,27 @@
 import Foundation
 
-/// Streams live quote + buy/sell/hold signal updates from the backend's
-/// `/ws/watch` WebSocket endpoint.
+/// Streams JSON messages from one of the backend's WebSocket endpoints
+/// (`/ws/watch` for `LiveUpdate`, `/ws/daytrade` for `DayLiveUpdate`).
+///
+/// Generic over the decoded payload type so a single implementation can
+/// serve both the multi-day watchlist stream and the same-day trading
+/// stream.
 final class WatchStreamService: NSObject {
     private var task: URLSessionWebSocketTask?
     private let decoder = APIClient.decoder
 
-    /// Connects and yields one `LiveUpdate` per message until cancelled or
-    /// the connection drops. Reconnects are the caller's responsibility.
-    func updates(for symbols: [String], baseURL: URL) -> AsyncThrowingStream<LiveUpdate, Error> {
+    /// Connects to `path` on `baseURL` (expected to already use the `ws`/`wss`
+    /// scheme - see `APIConfig.webSocketBaseURL`) and yields one decoded `T`
+    /// per message until cancelled or the connection drops. Reconnects are
+    /// the caller's responsibility.
+    func updates<T: Decodable>(path: String, symbols: [String], baseURL: URL) -> AsyncThrowingStream<T, Error> {
         AsyncThrowingStream { continuation in
             guard !symbols.isEmpty else {
                 continuation.finish()
                 return
             }
 
-            var components = URLComponents(url: baseURL.appendingPathComponent("/ws/watch"), resolvingAgainstBaseURL: false)!
+            var components = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
             components.queryItems = [URLQueryItem(name: "symbols", value: symbols.joined(separator: ","))]
             guard let url = components.url else {
                 continuation.finish(throwing: APIError.server("Invalid WebSocket URL"))
@@ -55,9 +61,9 @@ final class WatchStreamService: NSObject {
         }
     }
 
-    private func decodeAndYield(_ data: Data, continuation: AsyncThrowingStream<LiveUpdate, Error>.Continuation) {
+    private func decodeAndYield<T: Decodable>(_ data: Data, continuation: AsyncThrowingStream<T, Error>.Continuation) {
         do {
-            let update = try decoder.decode(LiveUpdate.self, from: data)
+            let update = try decoder.decode(T.self, from: data)
             continuation.yield(update)
         } catch {
             // Ignore malformed individual messages rather than killing the stream.

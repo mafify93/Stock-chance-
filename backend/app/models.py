@@ -79,3 +79,65 @@ class ScreenerResponse(BaseModel):
     sell: list[ScreenerItem]
     hold: list[ScreenerItem]
     errors: dict[str, str] = {}
+
+
+# --- Day trading (intraday, same-day only) ---------------------------------
+
+
+class MarketSessionResponse(BaseModel):
+    status: str  # "pre_market" | "open" | "after_hours" | "closed"
+    now_et: str
+    minutes_to_close: int | None = None
+    minutes_to_open: int | None = None
+    is_weekday: bool = True
+
+
+class DaySignalResponse(BaseModel):
+    symbol: str
+    action: str  # "DAY_BUY" | "DAY_SELL" | "DAY_HOLD"
+    confidence: float
+    price: float
+    vwap: float | None = None
+    session_open: float
+    session_high: float
+    session_low: float
+    change_from_open_pct: float
+    reasons: list[str]
+    entry: float | None = None
+    target: float | None = None
+    stop: float | None = None
+    suspected_profit_pct: float | None = None
+    suspected_profit_amount: float | None = None
+    alert: str | None = None
+    session: MarketSessionResponse
+    disclaimer: str = (
+        "Same-day technical signal based on today's intraday price action. "
+        "Not financial advice - intraday trading is high-risk."
+    )
+
+
+class MorningCandidate(BaseModel):
+    symbol: str
+    action: str  # "BUY_AT_OPEN" | "WATCH_DIP" | "AVOID" | "NEUTRAL"
+    price: float
+    gap_percent: float | None = None
+    data_mode: str
+    daily_trend: str
+    daily_score: float
+    suspected_profit_pct: float
+    suspected_profit_amount: float
+    plan: str
+    reasons: list[str]
+
+
+class MorningScanResponse(BaseModel):
+    generated_at: str
+    session: MarketSessionResponse
+    buy_at_open: list[MorningCandidate]
+    watch: list[MorningCandidate]
+    avoid: list[MorningCandidate]
+    errors: dict[str, str] = {}
+    disclaimer: str = (
+        "\"Suspected profit\" is an estimate based on the stock's recent daily volatility (ATR), "
+        "not a guarantee. Same-day trading is high-risk - only risk money you can afford to lose."
+    )

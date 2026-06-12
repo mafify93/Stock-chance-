@@ -78,4 +78,26 @@ struct APIClient {
         }
         return try await get("/api/screener", query: query)
     }
+
+    // MARK: - Day trading (same-day only)
+
+    func marketSession() async throws -> MarketSession {
+        try await get("/api/daytrade/session")
+    }
+
+    func daySignal(_ symbol: String) async throws -> DaySignalResponse {
+        try await get("/api/daytrade/signal/\(symbol)")
+    }
+
+    func intradayHistory(_ symbol: String, period: String = "1d", interval: String = "5m") async throws -> [Candle] {
+        try await get("/api/daytrade/intraday/\(symbol)", query: ["period": period, "interval": interval])
+    }
+
+    func morningScan(symbols: [String]? = nil, top: Int = 8) async throws -> MorningScanResponse {
+        var query = ["top": String(top)]
+        if let symbols, !symbols.isEmpty {
+            query["symbols"] = symbols.joined(separator: ",")
+        }
+        return try await get("/api/daytrade/morning", query: query)
+    }
 }

@@ -6,6 +6,9 @@ import logging
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from fastapi.concurrency import run_in_threadpool
 
+import dataclasses
+
+from ..intraday import compute_day_signal
 from ..providers import yahoo
 from ..signals import analyze
 
@@ -13,6 +16,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 POLL_INTERVAL_SECONDS = 15
+DAYTRADE_POLL_INTERVAL_SECONDS = 20
 
 
 @router.websocket("/ws/watch")
@@ -56,3 +60,39 @@ async def watch(websocket: WebSocket, symbols: str = Query(..., description="Com
             await asyncio.sleep(POLL_INTERVAL_SECONDS)
     except WebSocketDisconnect:
         logger.info("Client disconnected from /ws/watch")
+
+
+@router.websocket("/ws/daytrade")
+async def daytrade_watch(websocket: WebSocket, symbols: str = Query(..., description="Comma-separated symbols, e.g. AAPL,MSFT")):
+    """Stream live same-day Buy/Sell/Hold signals (with alerts) for the given symbols.
+
+    Sends one JSON message per symbol every ~20 seconds:
+        {"symbol": "AAPL", "signal": {...}}
+    or, on a per-symbol error:
+        {"symbol": "AAPL", "error": "..."}
+
+    The `signal.alert` field is the key one to watch for positions you've
+    marked as "bought": "TAKE_PROFIT_ZONE", "STOP_LOSS_ZONE" or "EOD_EXIT"
+    all mean "consider selling now".
+    """
+    await websocket.accept()
+    symbol_list = [s.strip().upper() for s in symbols.split(",") if s.strip()]
+    if not symbol_list:
+        await websocket.close(code=1008, reason="No symbols provided")
+        return
+
+    try:
+        while True:
+            for sym in symbol_list:
+                try:
+                    df = await run_in_threadpool(yahoo.get_intraday_history, sym)
+                    result = await run_in_threadpool(compute_day_signal, sym, df)
+                    payload = {"symbol": sym, "signal": dataclasses.asdict(result)}
+                except Exception as exc:  # noqa: BLE001
+                    payload = {"symbol": sym, "error": str(exc)}
+
+                await websocket.send_json(payload)
+
+            await asyncio.sleep(DAYTRADE_POLL_INTERVAL_SECONDS)
+    except WebSocketDisconnect:
+        logger.info("Client disconnected from /ws/daytrade")

@@ -37,6 +37,7 @@ struct ScreenerView: View {
                         await viewModel.refresh(watchlistSymbols: watchlist.symbols)
                     }
                 }
+                .luxuryBackground()
         }
     }
 
@@ -53,6 +54,7 @@ struct ScreenerView: View {
                 section(title: "Sell Candidates", items: response.sell, emptyText: "No strong sell signals right now.")
                 section(title: "Hold / Neutral", items: response.hold, emptyText: "Nothing neutral right now.")
             }
+            .listStyle(.plain)
             .navigationDestination(for: String.self) { symbol in
                 StockDetailView(symbol: symbol)
             }
@@ -60,18 +62,23 @@ struct ScreenerView: View {
     }
 
     private func section(title: String, items: [ScreenerItem], emptyText: String) -> some View {
-        Section(title) {
+        Section {
             if items.isEmpty {
                 Text(emptyText)
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.textSecondary)
+                    .listRowBackground(Color.clear)
             } else {
                 ForEach(items) { item in
                     NavigationLink(value: item.symbol) {
                         ScreenerRow(item: item)
                     }
+                    .listRowBackground(Theme.card)
                 }
             }
+        } header: {
+            Text(title)
+                .luxuryEyebrow()
         }
     }
 }
@@ -84,15 +91,16 @@ private struct ScreenerRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.symbol)
                     .font(.headline)
+                    .foregroundStyle(Theme.textPrimary)
                 Text(item.price, format: .currency(code: "USD"))
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.textSecondary)
             }
             Spacer()
             if let change = item.changePercent {
                 Text(change / 100, format: .percent.precision(.fractionLength(2)))
                     .font(.caption)
-                    .foregroundStyle(change >= 0 ? .green : .red)
+                    .foregroundStyle(change >= 0 ? Theme.profit : Theme.loss)
                     .frame(width: 70, alignment: .trailing)
             }
             SignalBadge(action: item.action, confidence: item.confidence)

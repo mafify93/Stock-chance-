@@ -13,7 +13,7 @@ struct PriceChartView: View {
                     x: .value("Date", candle.dateValue),
                     y: .value("Close", candle.close)
                 )
-                .foregroundStyle(.blue)
+                .foregroundStyle(Theme.gold)
                 .interpolationMethod(.catmullRom)
             }
 
@@ -22,7 +22,7 @@ struct PriceChartView: View {
                     x: .value("Date", point.date),
                     y: .value("SMA50", point.value)
                 )
-                .foregroundStyle(.orange)
+                .foregroundStyle(Theme.profit)
                 .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
             }
         }
@@ -58,4 +58,72 @@ struct PriceChartView: View {
 
 #Preview {
     PriceChartView(candles: [])
+}
+
+/// Intraday (5-minute) price line for the same-day trading view, with
+/// optional reference lines for VWAP and the suggested entry/target/stop
+/// levels.
+struct IntradayChartView: View {
+    let candles: [Candle]
+    var vwap: Double? = nil
+    var entry: Double? = nil
+    var target: Double? = nil
+    var stop: Double? = nil
+
+    var body: some View {
+        Chart {
+            ForEach(candles) { candle in
+                LineMark(
+                    x: .value("Time", candle.dateValue),
+                    y: .value("Price", candle.close)
+                )
+                .foregroundStyle(Theme.gold)
+                .interpolationMethod(.catmullRom)
+            }
+
+            if let vwap {
+                RuleMark(y: .value("VWAP", vwap))
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                    .annotation(position: .top, alignment: .leading) {
+                        Text("VWAP")
+                            .font(.caption2)
+                            .foregroundStyle(Theme.textSecondary)
+                    }
+            }
+            if let target {
+                RuleMark(y: .value("Target", target))
+                    .foregroundStyle(Theme.profit.opacity(0.6))
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [2, 2]))
+                    .annotation(position: .top, alignment: .leading) {
+                        Text("Target")
+                            .font(.caption2)
+                            .foregroundStyle(Theme.profit)
+                    }
+            }
+            if let entry {
+                RuleMark(y: .value("Entry", entry))
+                    .foregroundStyle(Theme.gold.opacity(0.6))
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [2, 2]))
+            }
+            if let stop {
+                RuleMark(y: .value("Stop", stop))
+                    .foregroundStyle(Theme.loss.opacity(0.6))
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [2, 2]))
+                    .annotation(position: .bottom, alignment: .leading) {
+                        Text("Stop")
+                            .font(.caption2)
+                            .foregroundStyle(Theme.loss)
+                    }
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .leading)
+        }
+        .frame(height: 180)
+    }
+}
+
+#Preview {
+    IntradayChartView(candles: [])
 }

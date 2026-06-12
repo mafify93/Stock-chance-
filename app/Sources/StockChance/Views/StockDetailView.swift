@@ -5,6 +5,8 @@ struct StockDetailView: View {
 
     @State private var viewModel: StockDetailViewModel
     @State private var watchlist = WatchlistStore.shared
+    @State private var positions = PositionStore.shared
+    @State private var showBuySheet = false
     @EnvironmentObject private var apiConfig: APIConfig
 
     init(symbol: String) {
@@ -23,8 +25,10 @@ struct StockDetailView: View {
                     ContentUnavailableView("Couldn't load \(symbol)", systemImage: "exclamationmark.triangle", description: Text(error))
                 } else {
                     header
+                    positionSection
                     if !viewModel.candles.isEmpty {
                         PriceChartView(candles: viewModel.candles)
+                            .luxuryCard()
                     }
                     if let signal = viewModel.signal {
                         signalCard(signal)
@@ -33,12 +37,16 @@ struct StockDetailView: View {
                         if let analyst = signal.analyst {
                             analystCard(analyst)
                         }
-                        disclaimer(signal)
+                    }
+                    dayTradeSection
+                    if let signal = viewModel.signal {
+                        disclaimer(signal.disclaimer)
                     }
                 }
             }
             .padding()
         }
+        .luxuryBackground()
         .navigationTitle(symbol)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -51,10 +59,16 @@ struct StockDetailView: View {
         }
         .task {
             await viewModel.load()
-            viewModel.startLive(baseURL: apiConfig.baseURL)
+            viewModel.startLive(baseURL: apiConfig.webSocketBaseURL)
         }
         .onDisappear {
             viewModel.stopLive()
+        }
+        .sheet(isPresented: $showBuySheet) {
+            MarkAsBoughtSheet(symbol: symbol, suggestedPrice: viewModel.quote?.price) { price, quantity in
+                positions.add(symbol: symbol, entryPrice: price, quantity: quantity)
+                NotificationManager.shared.requestAuthorization()
+            }
         }
     }
 
@@ -64,7 +78,8 @@ struct StockDetailView: View {
         VStack(alignment: .leading, spacing: 4) {
             if let quote = viewModel.quote {
                 Text(quote.price, format: .currency(code: quote.currency ?? "USD"))
-                    .font(.largeTitle.bold())
+                    .font(Theme.priceFont(34))
+                    .foregroundStyle(Theme.textPrimary)
                     .monospacedDigit()
                 if let change = quote.change, let changePercent = quote.changePercent {
                     HStack(spacing: 4) {
@@ -73,7 +88,7 @@ struct StockDetailView: View {
                         Text("(\(changePercent / 100, format: .percent.precision(.fractionLength(2))))")
                     }
                     .font(.subheadline)
-                    .foregroundStyle(change >= 0 ? .green : .red)
+                    .foregroundStyle(change >= 0 ? Theme.profit : Theme.loss)
                 }
                 HStack(spacing: 16) {
                     if let dayLow = quote.dayLow, let dayHigh = quote.dayHigh {
@@ -88,11 +103,46 @@ struct StockDetailView: View {
         }
     }
 
+    /// "I Bought This" call to action, or a summary of the tracked position.
+    @ViewBuilder
+    private var positionSection: some View {
+        if let position = positions.positions.first(where: { $0.symbol == symbol.uppercased() }) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Tracking Your Position")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.gold)
+                    Text("\(position.quantity.formatted()) sh @ \(position.entryPrice.formatted(.currency(code: "USD")))")
+                        .font(.caption)
+                        .foregroundStyle(Theme.textSecondary)
+                    Text("We'll alert you here and in My Positions when it's time to sell.")
+                        .font(.caption2)
+                        .foregroundStyle(Theme.textSecondary)
+                }
+                Spacer()
+                Button("Remove") {
+                    positions.remove(position)
+                }
+                .buttonStyle(LuxuryButtonStyle(prominent: false))
+            }
+            .luxuryCard()
+        } else {
+            Button {
+                showBuySheet = true
+            } label: {
+                Label("I Bought This", systemImage: "bag.badge.plus")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(LuxuryButtonStyle(prominent: true))
+        }
+    }
+
     private func signalCard(_ signal: SignalResponse) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("Signal")
-                    .font(.headline)
+                    .font(Theme.sectionTitleFont())
+                    .foregroundStyle(Theme.textPrimary)
                 Spacer()
                 SignalBadge(action: signal.action, confidence: signal.confidence)
             }
@@ -100,31 +150,29 @@ struct StockDetailView: View {
                 .tint(signal.action.color)
             Text("Composite score: \(signal.score, specifier: "%.2f") (-1 strong sell ... +1 strong buy)")
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.textSecondary)
         }
-        .padding()
-        .background(.quaternary.opacity(0.3))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .luxuryCard()
     }
 
     private func reasonsCard(_ signal: SignalResponse) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Why")
-                .font(.headline)
+                .font(Theme.sectionTitleFont())
+                .foregroundStyle(Theme.textPrimary)
             ForEach(signal.reasons, id: \.self) { reason in
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "circle.fill")
                         .font(.system(size: 5))
                         .padding(.top, 6)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Theme.textSecondary)
                     Text(reason)
                         .font(.subheadline)
+                        .foregroundStyle(Theme.textPrimary)
                 }
             }
         }
-        .padding()
-        .background(.quaternary.opacity(0.3))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .luxuryCard()
     }
 
     private func levelsCard(_ signal: SignalResponse) -> some View {
@@ -142,28 +190,31 @@ struct StockDetailView: View {
             if !pairs.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Suggested Levels (ATR-based)")
-                        .font(.headline)
+                        .font(Theme.sectionTitleFont())
+                        .foregroundStyle(Theme.textPrimary)
                     ForEach(pairs, id: \.0) { label, value in
                         HStack {
                             Text(label)
                                 .font(.subheadline)
+                                .foregroundStyle(Theme.textPrimary)
                             Spacer()
                             Text(formatted(value ?? 0))
                                 .font(.subheadline.monospacedDigit())
+                                .foregroundStyle(Theme.textSecondary)
                         }
                     }
                     if let rr = levels.riskReward {
                         HStack {
                             Text("Risk / Reward")
+                                .foregroundStyle(Theme.textPrimary)
                             Spacer()
                             Text("1 : \(rr, specifier: "%.1f")")
+                                .foregroundStyle(Theme.textSecondary)
                         }
                         .font(.subheadline)
                     }
                 }
-                .padding()
-                .background(.quaternary.opacity(0.3))
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .luxuryCard()
             }
         }
     }
@@ -173,48 +224,167 @@ struct StockDetailView: View {
             if analyst.targetMeanPrice != nil || analyst.recommendationKey != nil {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Analyst Outlook")
-                        .font(.headline)
+                        .font(Theme.sectionTitleFont())
+                        .foregroundStyle(Theme.textPrimary)
                     if let key = analyst.recommendationKey {
                         HStack {
                             Text("Consensus")
+                                .foregroundStyle(Theme.textPrimary)
                             Spacer()
                             Text(key.capitalized)
+                                .foregroundStyle(Theme.textSecondary)
                         }
                         .font(.subheadline)
                     }
                     if let mean = analyst.targetMeanPrice {
                         HStack {
                             Text("Avg. Price Target")
+                                .foregroundStyle(Theme.textPrimary)
                             Spacer()
                             Text(formatted(mean))
+                                .foregroundStyle(Theme.textSecondary)
                         }
                         .font(.subheadline)
                     }
                     if let low = analyst.targetLowPrice, let high = analyst.targetHighPrice {
                         HStack {
                             Text("Target Range")
+                                .foregroundStyle(Theme.textPrimary)
                             Spacer()
                             Text("\(formatted(low)) - \(formatted(high))")
+                                .foregroundStyle(Theme.textSecondary)
                         }
                         .font(.subheadline)
                     }
                     if let count = analyst.numberOfAnalystOpinions {
                         Text("Based on \(count) analyst opinions (Yahoo Finance)")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Theme.textSecondary)
                     }
                 }
-                .padding()
-                .background(.quaternary.opacity(0.3))
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .luxuryCard()
             }
         }
     }
 
-    private func disclaimer(_ signal: SignalResponse) -> some View {
-        Text(signal.disclaimer)
+    // MARK: - Day Trade (same-day)
+
+    @ViewBuilder
+    private var dayTradeSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("SAME-DAY")
+                .luxuryEyebrow()
+            Text("Day Trade Signal")
+                .font(Theme.sectionTitleFont())
+                .foregroundStyle(Theme.textPrimary)
+
+            if let daySignal = viewModel.daySignal {
+                MarketSessionBanner(session: daySignal.session)
+
+                if let alert = daySignal.alert {
+                    AlertBanner(alert: alert)
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Action")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Theme.textPrimary)
+                        Spacer()
+                        DayActionBadge(action: daySignal.action, confidence: daySignal.confidence)
+                    }
+
+                    if !viewModel.intradayCandles.isEmpty {
+                        IntradayChartView(
+                            candles: viewModel.intradayCandles,
+                            vwap: daySignal.vwap,
+                            entry: daySignal.entry,
+                            target: daySignal.target,
+                            stop: daySignal.stop
+                        )
+                    }
+
+                    let stats: [(String, String)] = [
+                        ("Session Open", formatted(daySignal.sessionOpen)),
+                        ("Session High", formatted(daySignal.sessionHigh)),
+                        ("Session Low", formatted(daySignal.sessionLow)),
+                        ("Change From Open", "\(daySignal.changeFromOpenPct >= 0 ? "+" : "")\(String(format: "%.2f", daySignal.changeFromOpenPct))%"),
+                    ]
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                        ForEach(stats, id: \.0) { label, value in
+                            statPair(label, value)
+                        }
+                        if let vwap = daySignal.vwap {
+                            statPair("VWAP", formatted(vwap))
+                        }
+                    }
+
+                    if daySignal.entry != nil || daySignal.target != nil || daySignal.stop != nil {
+                        Divider().overlay(Theme.cardBorder)
+                        let levels: [(String, Double?)] = [
+                            ("Entry", daySignal.entry),
+                            ("Target", daySignal.target),
+                            ("Stop", daySignal.stop),
+                        ].filter { $0.1 != nil }
+                        ForEach(levels, id: \.0) { label, value in
+                            HStack {
+                                Text(label)
+                                    .font(.subheadline)
+                                    .foregroundStyle(Theme.textPrimary)
+                                Spacer()
+                                Text(formatted(value ?? 0))
+                                    .font(.subheadline.monospacedDigit())
+                                    .foregroundStyle(Theme.textSecondary)
+                            }
+                        }
+                        if let pct = daySignal.suspectedProfitPct, let amount = daySignal.suspectedProfitAmount {
+                            HStack {
+                                Text("Suspected Profit")
+                                    .font(.subheadline)
+                                    .foregroundStyle(Theme.textPrimary)
+                                Spacer()
+                                Text("\(pct, specifier: "%.1f")% (~\(amount.formatted(.currency(code: "USD"))))")
+                                    .font(.subheadline.monospacedDigit())
+                                    .foregroundStyle(Theme.profit)
+                            }
+                        }
+                    }
+
+                    Divider().overlay(Theme.cardBorder)
+                    ForEach(daySignal.reasons, id: \.self) { reason in
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "circle.fill")
+                                .font(.system(size: 5))
+                                .padding(.top, 6)
+                                .foregroundStyle(Theme.textSecondary)
+                            Text(reason)
+                                .font(.subheadline)
+                                .foregroundStyle(Theme.textPrimary)
+                        }
+                    }
+
+                    disclaimer(daySignal.disclaimer)
+                }
+                .luxuryCard()
+            } else if let error = viewModel.dayErrorMessage {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(Theme.textSecondary)
+                    .luxuryCard()
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity)
+                    .padding()
+            }
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func disclaimer(_ text: String) -> some View {
+        Text(text)
             .font(.caption2)
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(Theme.textSecondary.opacity(0.8))
             .padding(.top, 4)
     }
 
@@ -222,14 +392,72 @@ struct StockDetailView: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title)
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.textSecondary)
             Text(value)
                 .font(.caption.monospacedDigit())
+                .foregroundStyle(Theme.textPrimary)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func formatted(_ value: Double) -> String {
         value.formatted(.currency(code: viewModel.quote?.currency ?? "USD"))
+    }
+}
+
+/// Sheet for recording entry price + quantity when the user taps
+/// "I Bought This".
+private struct MarkAsBoughtSheet: View {
+    let symbol: String
+    let suggestedPrice: Double?
+    let onSave: (Double, Double) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var priceText: String = ""
+    @State private var quantityText: String = "1"
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Position Details") {
+                    LabeledContent("Entry Price") {
+                        TextField("0.00", text: $priceText)
+                            #if os(iOS)
+                            .keyboardType(.decimalPad)
+                            #endif
+                            .multilineTextAlignment(.trailing)
+                    }
+                    LabeledContent("Quantity (shares)") {
+                        TextField("1", text: $quantityText)
+                            #if os(iOS)
+                            .keyboardType(.decimalPad)
+                            #endif
+                            .multilineTextAlignment(.trailing)
+                    }
+                } footer: {
+                    Text("We'll track \(symbol) in My Positions and let you know when the same-day signal suggests it's time to sell.")
+                }
+            }
+            .navigationTitle("I Bought \(symbol)")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        if let price = Double(priceText), let quantity = Double(quantityText), price > 0, quantity > 0 {
+                            onSave(price, quantity)
+                            dismiss()
+                        }
+                    }
+                }
+            }
+            .onAppear {
+                if priceText.isEmpty, let suggestedPrice {
+                    priceText = String(format: "%.2f", suggestedPrice)
+                }
+            }
+        }
     }
 }
 

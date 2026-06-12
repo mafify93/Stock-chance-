@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 // MARK: - Search
 
@@ -169,4 +170,176 @@ struct LiveSignal: Codable {
     var confidence: Double
     var reasons: [String]
     var levels: SignalLevels
+}
+
+// MARK: - Day trading (same-day only)
+
+enum MarketSessionStatus: String, Codable {
+    case preMarket = "pre_market"
+    case open = "open"
+    case afterHours = "after_hours"
+    case closed = "closed"
+
+    var label: String {
+        switch self {
+        case .preMarket: return "Pre-Market"
+        case .open: return "Market Open"
+        case .afterHours: return "After Hours"
+        case .closed: return "Market Closed"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .open: return Theme.profit
+        case .preMarket, .afterHours: return Theme.gold
+        case .closed: return Theme.neutral
+        }
+    }
+}
+
+struct MarketSession: Codable, Hashable {
+    var status: MarketSessionStatus
+    var nowEt: String
+    var minutesToClose: Int?
+    var minutesToOpen: Int?
+    var isWeekday: Bool
+}
+
+enum DayAction: String, Codable {
+    case dayBuy = "DAY_BUY"
+    case daySell = "DAY_SELL"
+    case dayHold = "DAY_HOLD"
+
+    var label: String {
+        switch self {
+        case .dayBuy: return "Buy Now"
+        case .daySell: return "Sell Now"
+        case .dayHold: return "Hold / Wait"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .dayBuy: return Theme.profit
+        case .daySell: return Theme.loss
+        case .dayHold: return Theme.gold
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .dayBuy: return "arrow.up.circle.fill"
+        case .daySell: return "arrow.down.circle.fill"
+        case .dayHold: return "hourglass"
+        }
+    }
+}
+
+enum DayAlert: String, Codable {
+    case takeProfit = "TAKE_PROFIT_ZONE"
+    case stopLoss = "STOP_LOSS_ZONE"
+    case eodExit = "EOD_EXIT"
+
+    var label: String {
+        switch self {
+        case .takeProfit: return "Take-Profit Zone - consider selling"
+        case .stopLoss: return "Stop-Loss Zone - consider cutting losses"
+        case .eodExit: return "Market closing soon - sell now"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .takeProfit: return Theme.profit
+        case .stopLoss, .eodExit: return Theme.loss
+        }
+    }
+}
+
+struct DaySignalResponse: Codable, Hashable {
+    var symbol: String
+    var action: DayAction
+    var confidence: Double
+    var price: Double
+    var vwap: Double?
+    var sessionOpen: Double
+    var sessionHigh: Double
+    var sessionLow: Double
+    var changeFromOpenPct: Double
+    var reasons: [String]
+    var entry: Double?
+    var target: Double?
+    var stop: Double?
+    var suspectedProfitPct: Double?
+    var suspectedProfitAmount: Double?
+    var alert: DayAlert?
+    var session: MarketSession
+    var disclaimer: String
+}
+
+struct DayLiveUpdate: Codable {
+    var symbol: String
+    var signal: DaySignalResponse?
+    var error: String?
+}
+
+enum MorningAction: String, Codable {
+    case buyAtOpen = "BUY_AT_OPEN"
+    case watchDip = "WATCH_DIP"
+    case avoid = "AVOID"
+    case neutral = "NEUTRAL"
+
+    var label: String {
+        switch self {
+        case .buyAtOpen: return "Buy at Open"
+        case .watchDip: return "Watch for Dip"
+        case .avoid: return "Avoid Today"
+        case .neutral: return "Neutral"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .buyAtOpen: return Theme.profit
+        case .watchDip: return Theme.gold
+        case .avoid: return Theme.loss
+        case .neutral: return Theme.neutral
+        }
+    }
+}
+
+struct MorningCandidate: Codable, Identifiable, Hashable {
+    var symbol: String
+    var action: MorningAction
+    var price: Double
+    var gapPercent: Double?
+    var dataMode: String
+    var dailyTrend: TradeAction
+    var dailyScore: Double
+    var suspectedProfitPct: Double
+    var suspectedProfitAmount: Double
+    var plan: String
+    var reasons: [String]
+
+    var id: String { symbol }
+}
+
+struct MorningScanResponse: Codable, Hashable {
+    var generatedAt: String
+    var session: MarketSession
+    var buyAtOpen: [MorningCandidate]
+    var watch: [MorningCandidate]
+    var avoid: [MorningCandidate]
+    var disclaimer: String
+}
+
+// MARK: - "I bought this" positions
+
+struct Position: Codable, Identifiable, Hashable {
+    var id: UUID = UUID()
+    var symbol: String
+    var entryPrice: Double
+    var quantity: Double
+    var boughtAt: Date
 }

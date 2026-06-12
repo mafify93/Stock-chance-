@@ -33,12 +33,14 @@ struct SettingsView: View {
                 Section("About") {
                     LabeledContent("Data Source", value: "Yahoo Finance (free)")
                     LabeledContent("Signal Engine", value: "Technical analysis (RSI, MACD, SMA/EMA, Bollinger Bands, Stochastic, ADX, ATR)")
+                    LabeledContent("Day Trading", value: "Same-day VWAP, opening range, momentum & volume signals")
                     Text("Signals are educational technical-analysis output, not financial advice. Markets are risky - never trade money you can't afford to lose.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
             .navigationTitle("Settings")
+            .luxuryBackground()
             .onAppear {
                 urlText = apiConfig.baseURL.absoluteString
             }

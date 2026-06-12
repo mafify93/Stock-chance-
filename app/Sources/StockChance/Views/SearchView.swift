@@ -25,6 +25,7 @@ struct SearchView: View {
                         }
                     }
                 }
+                .luxuryBackground()
         }
     }
 
@@ -51,12 +52,15 @@ struct SearchView: View {
                         SearchResultRow(result: result)
                     }
                     .buttonStyle(.plain)
+                    .listRowBackground(Theme.card)
                 } else {
                     NavigationLink(value: result.symbol) {
                         SearchResultRow(result: result)
                     }
+                    .listRowBackground(Theme.card)
                 }
             }
+            .listStyle(.plain)
             .navigationDestination(for: String.self) { symbol in
                 StockDetailView(symbol: symbol)
             }
@@ -72,25 +76,27 @@ private struct SearchResultRow: View {
             HStack {
                 Text(result.symbol)
                     .font(.headline)
+                    .foregroundStyle(Theme.textPrimary)
                 if let type = result.type {
                     Text(type.capitalized)
                         .font(.caption2)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(Color.secondary.opacity(0.15))
+                        .background(Theme.gold.opacity(0.15))
+                        .foregroundStyle(Theme.gold)
                         .clipShape(Capsule())
                 }
             }
             if let name = result.name {
                 Text(name)
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.textSecondary)
                     .lineLimit(1)
             }
             if let exchange = result.exchange {
                 Text(exchange)
                     .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(Theme.textSecondary.opacity(0.7))
             }
         }
     }

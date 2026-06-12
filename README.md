@@ -2,8 +2,11 @@
 
 A day-trading decision-support app: real-time(ish) quotes, technical-analysis
 Buy/Sell/Hold signals with full reasoning, a "what to buy/what to sell"
-screener, and free analyst price targets - available for **any** stock, ETF,
-index, crypto or FX symbol on Yahoo Finance, on **iOS and macOS**.
+screener, a same-day "Today" morning watchlist with suspected profit targets,
+live "I bought this" position tracking with sell alerts, and free analyst
+price targets - available for **any** stock, ETF, index, crypto or FX symbol
+on Yahoo Finance, on **iOS and macOS**, with a dark "private trading terminal"
+look.
 
 ## ⚠️ Read this first
 
@@ -63,6 +66,29 @@ entry/stop-loss/take-profit levels with a 1:2 risk/reward ratio.
 
 Free Yahoo Finance analyst recommendations and price targets are shown
 alongside the technical signal where available.
+
+## Same-day ("Today") trading
+
+For traders who want to buy and sell within the same session:
+
+- **Today tab** - before/after the open, see the current US market session
+  (pre-market / open / after-hours / closed with a countdown) plus
+  **Buy at Open**, **Watch for a Dip**, and **Avoid Today** lists, each with a
+  plain-English plan and an ATR-based "suspected profit" estimate.
+- **Day Trade Signal** (on each stock's detail screen) - a same-day
+  Buy/Sell/Hold call from intraday (5-minute) price action: VWAP position,
+  opening-range breakout, EMA9/EMA20 momentum, intraday RSI dips/peaks, and
+  relative volume spikes - with suggested entry/target/stop levels and an
+  intraday chart.
+- **Real-time alerts** - `TAKE_PROFIT_ZONE`, `STOP_LOSS_ZONE`, and `EOD_EXIT`
+  (sell before the close) flags update live via WebSocket.
+
+## "I bought this" position tracking
+
+From any stock's detail screen, tap **I Bought This** and enter your entry
+price and quantity. The **Positions** tab then tracks it with a live current
+price, unrealized P/L, and the same-day signal - and sends a local
+notification the moment the same-day signal or alert says it's time to sell.
 
 ## What's next
 

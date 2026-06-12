@@ -29,7 +29,7 @@ final class WatchlistViewModel {
             guard let self else { return }
             while !Task.isCancelled {
                 do {
-                    let updates = self.stream.updates(for: symbols, baseURL: baseURL)
+                    let updates: AsyncThrowingStream<LiveUpdate, Error> = self.stream.updates(path: "/ws/watch", symbols: symbols, baseURL: baseURL)
                     for try await update in updates {
                         await MainActor.run {
                             self.isConnected = true

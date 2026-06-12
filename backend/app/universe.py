@@ -29,3 +29,13 @@ DEFAULT_UNIVERSE: list[str] = [
     # Other popular names
     "UBER", "SHOP", "SQ", "COIN", "PLTR", "SNOW", "ABNB", "RIVN", "F", "GM",
 ]
+
+# A smaller set of highly liquid, high-volatility names well suited to
+# same-day (intraday) trading. Used by the morning scan / day-trading
+# screener so the (heavier) pre-market lookups stay fast.
+DAYTRADE_UNIVERSE: list[str] = [
+    "AAPL", "MSFT", "NVDA", "AMD", "TSLA", "AMZN", "META", "GOOGL", "NFLX", "AVGO",
+    "SPY", "QQQ", "IWM", "DIA",
+    "COIN", "PLTR", "SOFI", "RIVN", "F", "BAC",
+    "MARA", "MSTR", "SMCI", "UBER",
+]

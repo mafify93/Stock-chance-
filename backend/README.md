@@ -15,6 +15,11 @@ app. It provides:
   updates every ~15 seconds for a list of symbols.
 - **Analyst outlook** - free analyst price targets / recommendation
   consensus bundled with Yahoo Finance data, where available.
+- **Same-day ("day trading") signals** - market session status, an intraday
+  (5-minute) Buy/Sell/Hold signal with VWAP, opening-range, momentum, RSI and
+  volume-based reasoning plus suggested entry/target/stop and take-profit /
+  stop-loss / end-of-day-exit alerts, a morning "what to buy at the open" scan,
+  and a live WebSocket (`/ws/daytrade`).
 
 ## ⚠️ Important disclaimer
 
@@ -55,6 +60,11 @@ python3 -m pytest
 | `GET /api/screener?top=10` | Top buy/sell/hold across the default universe |
 | `GET /api/screener?symbols=AAPL,MSFT&top=10` | Screener over a custom list |
 | `WS /ws/watch?symbols=AAPL,MSFT` | Live quote + signal stream |
+| `GET /api/daytrade/session` | Current US market session (pre-market/open/after-hours/closed) |
+| `GET /api/daytrade/signal/AAPL` | Same-day Buy/Sell/Hold signal from intraday price action |
+| `GET /api/daytrade/intraday/AAPL?period=1d&interval=5m` | Intraday OHLCV candles for charting |
+| `GET /api/daytrade/morning?top=8` | Morning scan: Buy at Open / Watch / Avoid candidates |
+| `WS /ws/daytrade?symbols=AAPL,MSFT` | Live same-day signal + alert stream (~20s) |
 
 ## Data sources
 

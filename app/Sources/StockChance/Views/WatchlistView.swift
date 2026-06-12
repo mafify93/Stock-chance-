@@ -15,6 +15,7 @@ struct WatchlistView: View {
                         systemImage: "chart.line.uptrend.xyaxis",
                         description: Text("Tap + to search and add any stock, ETF or crypto symbol.")
                     )
+                    .listRowBackground(Color.clear)
                 } else {
                     ForEach(store.symbols, id: \.self) { symbol in
                         NavigationLink(value: symbol) {
@@ -28,6 +29,8 @@ struct WatchlistView: View {
                     }
                 }
             }
+            .listStyle(.plain)
+            .luxuryBackground()
             .navigationTitle("Watchlist")
             .navigationDestination(for: String.self) { symbol in
                 StockDetailView(symbol: symbol)
@@ -43,7 +46,7 @@ struct WatchlistView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     if viewModel.isConnected {
                         Image(systemName: "dot.radiowaves.left.and.right")
-                            .foregroundStyle(.green)
+                            .foregroundStyle(Theme.profit)
                             .help("Live updates connected")
                     }
                 }
@@ -55,10 +58,10 @@ struct WatchlistView: View {
                 })
             }
             .onAppear {
-                viewModel.start(symbols: store.symbols, baseURL: apiConfig.baseURL)
+                viewModel.start(symbols: store.symbols, baseURL: apiConfig.webSocketBaseURL)
             }
             .onChange(of: store.symbols) { _, newValue in
-                viewModel.start(symbols: newValue, baseURL: apiConfig.baseURL)
+                viewModel.start(symbols: newValue, baseURL: apiConfig.webSocketBaseURL)
             }
             .onDisappear {
                 viewModel.stop()
@@ -76,10 +79,11 @@ private struct WatchlistRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(symbol)
                     .font(.headline)
+                    .foregroundStyle(Theme.textPrimary)
                 if let error = update?.error {
                     Text(error)
                         .font(.caption)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Theme.loss)
                         .lineLimit(1)
                 }
             }
@@ -90,11 +94,12 @@ private struct WatchlistRow: View {
                 VStack(alignment: .trailing, spacing: 4) {
                     Text(quote.price, format: .currency(code: quote.currency ?? "USD"))
                         .font(.subheadline)
+                        .foregroundStyle(Theme.textPrimary)
                         .monospacedDigit()
                     if let changePercent = quote.changePercent {
                         Text(changePercent / 100, format: .percent.precision(.fractionLength(2)))
                             .font(.caption)
-                            .foregroundStyle(changePercent >= 0 ? .green : .red)
+                            .foregroundStyle(changePercent >= 0 ? Theme.profit : Theme.loss)
                             .monospacedDigit()
                     }
                 }
@@ -108,6 +113,7 @@ private struct WatchlistRow: View {
             }
         }
         .padding(.vertical, 4)
+        .listRowBackground(Theme.card)
     }
 }
 
