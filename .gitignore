@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# Xcode / XcodeGen
+app/*.xcodeproj/
+app/.build/
+app/DerivedData/
+**/*.xcuserstate
+**/xcuserdata/
+
+# macOS
+.DS_Store
