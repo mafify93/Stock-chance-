@@ -1,12 +1,10 @@
 import Foundation
-import Observation
 
 /// Drives the watchlist screen: keeps a live WebSocket connection open for
 /// every symbol the user is watching and republishes quote + signal updates.
-@Observable
-final class WatchlistViewModel {
-    private(set) var liveData: [String: LiveUpdate] = [:]
-    private(set) var isConnected = false
+final class WatchlistViewModel: ObservableObject {
+    @Published private(set) var liveData: [String: LiveUpdate] = [:]
+    @Published private(set) var isConnected = false
 
     private let stream = WatchStreamService()
     private var streamTask: Task<Void, Never>?

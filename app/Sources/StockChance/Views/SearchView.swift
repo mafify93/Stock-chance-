@@ -10,7 +10,7 @@ import SwiftUI
 struct SearchView: View {
     var onSelect: ((String) -> Void)? = nil
 
-    @State private var viewModel = SearchViewModel()
+    @StateObject private var viewModel = SearchViewModel()
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -34,15 +34,15 @@ struct SearchView: View {
         if viewModel.isLoading {
             ProgressView()
         } else if let error = viewModel.errorMessage {
-            ContentUnavailableView("Search failed", systemImage: "exclamationmark.triangle", description: Text(error))
+            EmptyStateView("Search failed", systemImage: "exclamationmark.triangle", description: Text(error))
         } else if viewModel.query.isEmpty {
-            ContentUnavailableView(
+            EmptyStateView(
                 "Search all stocks",
                 systemImage: "magnifyingglass",
                 description: Text("Find any stock, ETF, index, crypto or FX symbol, e.g. \"Apple\" or \"AAPL\".")
             )
         } else if viewModel.results.isEmpty {
-            ContentUnavailableView.search
+            EmptyStateView.search
         } else {
             List(viewModel.results) { result in
                 if let onSelect {
@@ -100,9 +100,4 @@ private struct SearchResultRow: View {
             }
         }
     }
-}
-
-#Preview {
-    SearchView()
-        .environmentObject(APIConfig.shared)
 }

@@ -3,8 +3,8 @@ import SwiftUI
 /// "What to buy / what to sell right now" - scans either a curated universe
 /// of popular stocks/ETFs or the user's watchlist and ranks them.
 struct ScreenerView: View {
-    @State private var viewModel = ScreenerViewModel()
-    @State private var watchlist = WatchlistStore.shared
+    @StateObject private var viewModel = ScreenerViewModel()
+    @StateObject private var watchlist = WatchlistStore.shared
 
     var body: some View {
         NavigationStack {
@@ -29,7 +29,7 @@ struct ScreenerView: View {
                     .padding(.horizontal)
                     .padding(.top, 8)
                 }
-                .onChange(of: viewModel.useWatchlist) { _, _ in
+                .onChange(of: viewModel.useWatchlist) { _ in
                     Task { await viewModel.refresh(watchlistSymbols: watchlist.symbols) }
                 }
                 .task {
@@ -47,7 +47,7 @@ struct ScreenerView: View {
             ProgressView("Scanning the market...")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let error = viewModel.errorMessage, viewModel.response == nil {
-            ContentUnavailableView("Couldn't load screener", systemImage: "exclamationmark.triangle", description: Text(error))
+            EmptyStateView("Couldn't load screener", systemImage: "exclamationmark.triangle", description: Text(error))
         } else if let response = viewModel.response {
             List {
                 section(title: "Buy Candidates", items: response.buy, emptyText: "No strong buy signals right now.")
@@ -106,9 +106,4 @@ private struct ScreenerRow: View {
             SignalBadge(action: item.action, confidence: item.confidence)
         }
     }
-}
-
-#Preview {
-    ScreenerView()
-        .environmentObject(APIConfig.shared)
 }

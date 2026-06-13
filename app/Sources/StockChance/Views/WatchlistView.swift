@@ -1,8 +1,8 @@
 import SwiftUI
 
 struct WatchlistView: View {
-    @State private var store = WatchlistStore.shared
-    @State private var viewModel = WatchlistViewModel()
+    @StateObject private var store = WatchlistStore.shared
+    @StateObject private var viewModel = WatchlistViewModel()
     @State private var showSearch = false
     @EnvironmentObject private var apiConfig: APIConfig
 
@@ -10,7 +10,7 @@ struct WatchlistView: View {
         NavigationStack {
             List {
                 if store.symbols.isEmpty {
-                    ContentUnavailableView(
+                    EmptyStateView(
                         "No symbols yet",
                         systemImage: "chart.line.uptrend.xyaxis",
                         description: Text("Tap + to search and add any stock, ETF or crypto symbol.")
@@ -60,7 +60,7 @@ struct WatchlistView: View {
             .onAppear {
                 viewModel.start(symbols: store.symbols, baseURL: apiConfig.webSocketBaseURL)
             }
-            .onChange(of: store.symbols) { _, newValue in
+            .onChange(of: store.symbols) { newValue in
                 viewModel.start(symbols: newValue, baseURL: apiConfig.webSocketBaseURL)
             }
             .onDisappear {
@@ -115,9 +115,4 @@ private struct WatchlistRow: View {
         .padding(.vertical, 4)
         .listRowBackground(Theme.card)
     }
-}
-
-#Preview {
-    WatchlistView()
-        .environmentObject(APIConfig.shared)
 }

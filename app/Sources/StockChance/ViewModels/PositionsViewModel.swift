@@ -1,14 +1,12 @@
 import Foundation
-import Observation
 
 /// Streams live same-day signals for every symbol the user holds a
 /// position in, and triggers a local notification whenever the backend
 /// flags an alert (take-profit / stop-loss / end-of-day exit) or a
 /// "Sell Now" action.
-@Observable
-final class PositionsViewModel {
-    private(set) var liveSignals: [String: DaySignalResponse] = [:]
-    private(set) var isConnected = false
+final class PositionsViewModel: ObservableObject {
+    @Published private(set) var liveSignals: [String: DaySignalResponse] = [:]
+    @Published private(set) var isConnected = false
 
     private let stream = WatchStreamService()
     private var streamTask: Task<Void, Never>?

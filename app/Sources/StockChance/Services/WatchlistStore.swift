@@ -1,15 +1,13 @@
 import Foundation
-import Observation
 
 /// Persists the user's watchlist (list of ticker symbols) to UserDefaults.
-@Observable
-final class WatchlistStore {
+final class WatchlistStore: ObservableObject {
     static let shared = WatchlistStore()
 
     private static let storageKey = "stockchance.watchlist.symbols"
     private static let defaultSymbols = ["AAPL", "MSFT", "TSLA", "NVDA", "AMZN"]
 
-    var symbols: [String] {
+    @Published var symbols: [String] {
         didSet {
             UserDefaults.standard.set(symbols, forKey: Self.storageKey)
         }

@@ -3,15 +3,15 @@ import SwiftUI
 struct StockDetailView: View {
     let symbol: String
 
-    @State private var viewModel: StockDetailViewModel
-    @State private var watchlist = WatchlistStore.shared
-    @State private var positions = PositionStore.shared
+    @StateObject private var viewModel: StockDetailViewModel
+    @StateObject private var watchlist = WatchlistStore.shared
+    @StateObject private var positions = PositionStore.shared
     @State private var showBuySheet = false
     @EnvironmentObject private var apiConfig: APIConfig
 
     init(symbol: String) {
         self.symbol = symbol
-        _viewModel = State(wrappedValue: StockDetailViewModel(symbol: symbol))
+        _viewModel = StateObject(wrappedValue: StockDetailViewModel(symbol: symbol))
     }
 
     var body: some View {
@@ -22,7 +22,7 @@ struct StockDetailView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.top, 40)
                 } else if let error = viewModel.errorMessage, viewModel.quote == nil {
-                    ContentUnavailableView("Couldn't load \(symbol)", systemImage: "exclamationmark.triangle", description: Text(error))
+                    EmptyStateView("Couldn't load \(symbol)", systemImage: "exclamationmark.triangle", description: Text(error))
                 } else {
                     header
                     positionSection
@@ -459,11 +459,4 @@ private struct MarkAsBoughtSheet: View {
             }
         }
     }
-}
-
-#Preview {
-    NavigationStack {
-        StockDetailView(symbol: "AAPL")
-    }
-    .environmentObject(APIConfig.shared)
 }

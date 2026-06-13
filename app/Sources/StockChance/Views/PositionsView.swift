@@ -4,8 +4,8 @@ import SwiftUI
 /// live current price, unrealized P/L, and same-day sell alerts driven by
 /// the `/ws/daytrade` stream + local notifications.
 struct PositionsView: View {
-    @State private var store = PositionStore.shared
-    @State private var viewModel = PositionsViewModel()
+    @StateObject private var store = PositionStore.shared
+    @StateObject private var viewModel = PositionsViewModel()
     @EnvironmentObject private var apiConfig: APIConfig
 
     var body: some View {
@@ -20,7 +20,7 @@ struct PositionsView: View {
                     NotificationManager.shared.requestAuthorization()
                     viewModel.start(symbols: store.positions.map(\.symbol), baseURL: apiConfig.webSocketBaseURL)
                 }
-                .onChange(of: store.positions) { _, newValue in
+                .onChange(of: store.positions) { newValue in
                     viewModel.start(symbols: newValue.map(\.symbol), baseURL: apiConfig.webSocketBaseURL)
                 }
                 .onDisappear {
@@ -32,7 +32,7 @@ struct PositionsView: View {
     @ViewBuilder
     private var content: some View {
         if store.positions.isEmpty {
-            ContentUnavailableView(
+            EmptyStateView(
                 "No positions yet",
                 systemImage: "bag.badge.plus",
                 description: Text("Open any stock and tap \"I Bought This\" to track it here with live same-day sell alerts.")
@@ -132,9 +132,4 @@ private struct PositionRow: View {
         .padding(.vertical, 6)
         .listRowBackground(Theme.card)
     }
-}
-
-#Preview {
-    PositionsView()
-        .environmentObject(APIConfig.shared)
 }

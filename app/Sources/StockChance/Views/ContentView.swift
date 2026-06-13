@@ -24,8 +24,3 @@ struct ContentView: View {
         .tint(Theme.gold)
     }
 }
-
-#Preview {
-    ContentView()
-        .environmentObject(APIConfig.shared)
-}

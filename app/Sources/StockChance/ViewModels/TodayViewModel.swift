@@ -1,14 +1,12 @@
 import Foundation
-import Observation
 
 /// Drives the "Today" tab: the current US market session plus the morning
 /// scan of same-day buy/watch/avoid candidates.
-@Observable
-final class TodayViewModel {
-    private(set) var session: MarketSession?
-    private(set) var scan: MorningScanResponse?
-    private(set) var isLoading = false
-    private(set) var errorMessage: String?
+final class TodayViewModel: ObservableObject {
+    @Published private(set) var session: MarketSession?
+    @Published private(set) var scan: MorningScanResponse?
+    @Published private(set) var isLoading = false
+    @Published private(set) var errorMessage: String?
 
     @MainActor
     func refresh() async {

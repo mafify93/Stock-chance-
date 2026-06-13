@@ -102,14 +102,3 @@ struct AlertBanner: View {
         )
     }
 }
-
-#Preview {
-    VStack(spacing: 12) {
-        SignalBadge(action: .strongBuy, confidence: 82)
-        SignalBadge(action: .buy, confidence: 61)
-        SignalBadge(action: .hold, confidence: 12)
-        SignalBadge(action: .sell, confidence: 55)
-        SignalBadge(action: .strongSell, confidence: 90)
-    }
-    .padding()
-}

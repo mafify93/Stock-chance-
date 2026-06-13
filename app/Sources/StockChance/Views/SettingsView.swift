@@ -70,8 +70,3 @@ struct SettingsView: View {
         }
     }
 }
-
-#Preview {
-    SettingsView()
-        .environmentObject(APIConfig.shared)
-}

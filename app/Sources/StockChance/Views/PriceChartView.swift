@@ -56,10 +56,6 @@ struct PriceChartView: View {
     }
 }
 
-#Preview {
-    PriceChartView(candles: [])
-}
-
 /// Intraday (5-minute) price line for the same-day trading view, with
 /// optional reference lines for VWAP and the suggested entry/target/stop
 /// levels.
@@ -122,8 +118,4 @@ struct IntradayChartView: View {
         }
         .frame(height: 180)
     }
-}
-
-#Preview {
-    IntradayChartView(candles: [])
 }

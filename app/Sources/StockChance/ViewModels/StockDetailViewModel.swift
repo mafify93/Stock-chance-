@@ -1,19 +1,17 @@
 import Foundation
-import Observation
 
-@Observable
-final class StockDetailViewModel {
+final class StockDetailViewModel: ObservableObject {
     let symbol: String
 
-    private(set) var quote: Quote?
-    private(set) var signal: SignalResponse?
-    private(set) var candles: [Candle] = []
-    private(set) var isLoading = false
-    private(set) var errorMessage: String?
+    @Published private(set) var quote: Quote?
+    @Published private(set) var signal: SignalResponse?
+    @Published private(set) var candles: [Candle] = []
+    @Published private(set) var isLoading = false
+    @Published private(set) var errorMessage: String?
 
-    private(set) var daySignal: DaySignalResponse?
-    private(set) var intradayCandles: [Candle] = []
-    private(set) var dayErrorMessage: String?
+    @Published private(set) var daySignal: DaySignalResponse?
+    @Published private(set) var intradayCandles: [Candle] = []
+    @Published private(set) var dayErrorMessage: String?
 
     private let stream = WatchStreamService()
     private let dayStream = WatchStreamService()

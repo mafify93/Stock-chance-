@@ -1,15 +1,13 @@
 import Foundation
-import Observation
 
 /// Drives the "What to buy / what to sell" screener screen.
-@Observable
-final class ScreenerViewModel {
-    private(set) var response: ScreenerResponse?
-    private(set) var isLoading = false
-    private(set) var errorMessage: String?
+final class ScreenerViewModel: ObservableObject {
+    @Published private(set) var response: ScreenerResponse?
+    @Published private(set) var isLoading = false
+    @Published private(set) var errorMessage: String?
 
     /// When true, scans the user's watchlist instead of the default universe.
-    var useWatchlist = false
+    @Published var useWatchlist = false
 
     @MainActor
     func refresh(watchlistSymbols: [String]) async {

@@ -1,14 +1,12 @@
 import Foundation
-import Observation
 
-@Observable
-final class SearchViewModel {
-    var query: String = "" {
+final class SearchViewModel: ObservableObject {
+    @Published var query: String = "" {
         didSet { scheduleSearch() }
     }
-    private(set) var results: [SearchResult] = []
-    private(set) var isLoading = false
-    private(set) var errorMessage: String?
+    @Published private(set) var results: [SearchResult] = []
+    @Published private(set) var isLoading = false
+    @Published private(set) var errorMessage: String?
 
     private var searchTask: Task<Void, Never>?
 

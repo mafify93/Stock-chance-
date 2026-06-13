@@ -4,7 +4,7 @@ import SwiftUI
 /// same-day Buy at Open / Watch for Dip / Avoid candidates with suspected
 /// profit targets and a plain-language plan for each.
 struct TodayView: View {
-    @State private var viewModel = TodayViewModel()
+    @StateObject private var viewModel = TodayViewModel()
 
     var body: some View {
         NavigationStack {
@@ -35,7 +35,7 @@ struct TodayView: View {
             ProgressView("Scanning the morning market...")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let error = viewModel.errorMessage, viewModel.scan == nil {
-            ContentUnavailableView("Couldn't load today's scan", systemImage: "exclamationmark.triangle", description: Text(error))
+            EmptyStateView("Couldn't load today's scan", systemImage: "exclamationmark.triangle", description: Text(error))
         } else if let scan = viewModel.scan {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
@@ -157,9 +157,4 @@ private struct MorningCandidateCard: View {
                 .foregroundStyle(Theme.textPrimary)
         }
     }
-}
-
-#Preview {
-    TodayView()
-        .environmentObject(APIConfig.shared)
 }

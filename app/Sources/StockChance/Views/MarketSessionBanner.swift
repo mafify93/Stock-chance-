@@ -48,13 +48,3 @@ struct MarketSessionBanner: View {
         }
     }
 }
-
-#Preview {
-    VStack(spacing: 12) {
-        MarketSessionBanner(session: MarketSession(status: .open, nowEt: "11:42 AM ET", minutesToClose: 258, minutesToOpen: nil, isWeekday: true))
-        MarketSessionBanner(session: MarketSession(status: .preMarket, nowEt: "8:15 AM ET", minutesToClose: nil, minutesToOpen: 75, isWeekday: true))
-        MarketSessionBanner(session: MarketSession(status: .closed, nowEt: "10:00 PM ET", minutesToClose: nil, minutesToOpen: nil, isWeekday: false))
-    }
-    .padding()
-    .luxuryBackground()
-}

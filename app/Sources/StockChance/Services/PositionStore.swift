@@ -1,15 +1,13 @@
 import Foundation
-import Observation
 
 /// Persists the user's "I bought this" positions to UserDefaults so the
 /// Positions tab can track live P/L and surface same-day sell alerts.
-@Observable
-final class PositionStore {
+final class PositionStore: ObservableObject {
     static let shared = PositionStore()
 
     private static let storageKey = "stockchance.positions"
 
-    var positions: [Position] {
+    @Published var positions: [Position] {
         didSet {
             save()
         }
