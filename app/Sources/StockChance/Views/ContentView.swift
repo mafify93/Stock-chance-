@@ -9,8 +9,8 @@ struct ContentView: View {
             WatchlistView()
                 .tabItem { Label("Watchlist", systemImage: "star.fill") }
 
-            PositionsView()
-                .tabItem { Label("Positions", systemImage: "bag.fill") }
+            PortfolioView()
+                .tabItem { Label("Portfolio", systemImage: "briefcase.fill") }
 
             ScreenerView()
                 .tabItem { Label("Screener", systemImage: "chart.bar.fill") }

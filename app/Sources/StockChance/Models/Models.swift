@@ -135,6 +135,69 @@ struct SignalResponse: Codable, Hashable {
     var disclaimer: String
 }
 
+// MARK: - Backtest
+
+struct BacktestTrade: Codable, Identifiable, Hashable {
+    var entryDate: String
+    var exitDate: String
+    var entryPrice: Double
+    var exitPrice: Double
+    var profitLoss: Double
+    var profitLossPct: Double
+    var exitReason: String // "SELL" | "STRONG_SELL" | "END_OF_PERIOD"
+
+    var id: String { "\(entryDate)-\(exitDate)" }
+}
+
+struct BacktestResponse: Codable, Hashable {
+    var symbol: String
+    var startDate: String
+    var endDate: String
+    var startPrice: Double
+    var endPrice: Double
+    var initialCapital: Double
+    var finalValue: Double
+    var totalReturnPct: Double
+    var buyHoldReturnPct: Double
+    var tradeCount: Int
+    var winCount: Int
+    var winRatePct: Double
+    var trades: [BacktestTrade]
+    var disclaimer: String
+}
+
+// MARK: - Watchlist alerts
+
+/// User-configured price/signal alert for a watched symbol. Removed from
+/// `WatchlistAlertStore` entirely once all fields are back to their default
+/// (no-op) state.
+struct WatchlistAlert: Codable, Hashable {
+    var symbol: String
+    var priceAbove: Double?
+    var priceBelow: Double?
+    var notifyOnSignalChange: Bool = false
+
+    var isActive: Bool {
+        priceAbove != nil || priceBelow != nil || notifyOnSignalChange
+    }
+}
+
+// MARK: - Trade journal
+
+/// A single logged trade - either a real broker order or a manually-tracked
+/// "I Bought This" / "Sold" entry - used to compute win rate and realized
+/// P/L over time.
+struct JournalEntry: Codable, Identifiable, Hashable {
+    var id: UUID = UUID()
+    var symbol: String
+    var side: String // "buy" | "sell"
+    var quantity: Double
+    var price: Double
+    var timestamp: Date
+    var source: String // "paper" | "live-alpaca" | "questrade" | "manual"
+    var realizedPL: Double?
+}
+
 // MARK: - Screener
 
 struct ScreenerItem: Codable, Identifiable, Hashable {

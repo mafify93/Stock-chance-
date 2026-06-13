@@ -64,6 +64,37 @@ class SignalResponse(BaseModel):
     )
 
 
+class BacktestTrade(BaseModel):
+    entry_date: str
+    exit_date: str
+    entry_price: float
+    exit_price: float
+    profit_loss: float
+    profit_loss_pct: float
+    exit_reason: str  # "SELL" | "STRONG_SELL" | "END_OF_PERIOD"
+
+
+class BacktestResponse(BaseModel):
+    symbol: str
+    start_date: str
+    end_date: str
+    start_price: float
+    end_price: float
+    initial_capital: float
+    final_value: float
+    total_return_pct: float
+    buy_hold_return_pct: float
+    trade_count: int
+    win_count: int
+    win_rate_pct: float
+    trades: list[BacktestTrade]
+    disclaimer: str = (
+        "Backtest results simulate this app's Buy/Sell signal rules against historical data. "
+        "They do not account for fees, slippage or taxes. Past performance does not guarantee "
+        "future results."
+    )
+
+
 class ScreenerItem(BaseModel):
     symbol: str
     action: str

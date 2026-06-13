@@ -124,6 +124,12 @@ struct APIClient {
         return try await get("/api/screener", query: query)
     }
 
+    // MARK: - Backtest
+
+    func backtest(_ symbol: String, period: String = "2y", initialCapital: Double = 10000) async throws -> BacktestResponse {
+        try await get("/api/backtest/\(symbol)", query: ["period": period, "initial_capital": String(initialCapital)])
+    }
+
     // MARK: - Day trading (same-day only)
 
     func marketSession() async throws -> MarketSession {
@@ -188,6 +194,10 @@ struct APIClient {
 
     func questradeBalances(accountNumber: String, credentials: QuestradeCredentials) async throws -> QuestradeBalances {
         try await get("/api/broker/questrade/balances", query: ["account_number": accountNumber], headers: credentials.headers)
+    }
+
+    func questradePositions(accountNumber: String, credentials: QuestradeCredentials) async throws -> [QuestradePosition] {
+        try await get("/api/broker/questrade/positions", query: ["account_number": accountNumber], headers: credentials.headers)
     }
 
     func questradeSymbols(_ query: String, credentials: QuestradeCredentials) async throws -> [QuestradeSymbol] {

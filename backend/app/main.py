@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routers import broker, daytrade, screener, signal, stocks, ws
+from .routers import backtest, broker, daytrade, screener, signal, stocks, ws
 
 app = FastAPI(
     title="Stock Chance API",
@@ -28,6 +28,7 @@ app.include_router(signal.router)
 app.include_router(screener.router)
 app.include_router(daytrade.router)
 app.include_router(broker.router)
+app.include_router(backtest.router)
 app.include_router(ws.router)
 
 

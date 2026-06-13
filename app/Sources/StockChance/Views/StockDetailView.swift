@@ -211,6 +211,12 @@ struct StockDetailView: View {
             Text("Composite score: \(signal.score, specifier: "%.2f") (-1 strong sell ... +1 strong buy)")
                 .font(.caption)
                 .foregroundStyle(Theme.textSecondary)
+            NavigationLink {
+                BacktestView(symbol: symbol, baseURL: apiConfig.baseURL)
+            } label: {
+                Label("Backtest This Strategy", systemImage: "chart.xyaxis.line")
+                    .font(.caption)
+            }
         }
         .luxuryCard()
     }

@@ -136,12 +136,14 @@ struct BrokerOrderSheet: View {
                 let placed = try await client.placeBrokerOrder(order, credentials: brokerStore.paperCredentials)
                 didSucceed = true
                 resultMessage = "✅ Order submitted (status: \(placed.status ?? "accepted")). View it in your Alpaca paper account."
+                JournalStore.shared.log(symbol: symbol, side: side, quantity: quantity, price: placed.filledAvgPrice ?? suggestedPrice ?? 0, source: "paper")
 
             case .alpacaLive:
                 let order = BrokerOrderRequest(symbol: symbol, quantity: quantity, side: side)
                 let placed = try await client.placeBrokerOrder(order, credentials: brokerStore.liveCredentials)
                 didSucceed = true
                 resultMessage = "✅ LIVE order submitted (status: \(placed.status ?? "accepted")). View it in your Alpaca account."
+                JournalStore.shared.log(symbol: symbol, side: side, quantity: quantity, price: placed.filledAvgPrice ?? suggestedPrice ?? 0, source: "live-alpaca")
 
             case .questrade(let accountNumber):
                 if brokerStore.isQuestradeAccessTokenExpired {
@@ -163,6 +165,7 @@ struct BrokerOrderSheet: View {
                 let placed = try await client.placeQuestradeOrder(order, credentials: brokerStore.questradeCredentials)
                 didSucceed = true
                 resultMessage = "✅ LIVE order submitted (status: \(placed.state ?? "accepted")). View it in your Questrade account."
+                JournalStore.shared.log(symbol: symbol, side: side, quantity: quantity, price: placed.avgExecPrice ?? suggestedPrice ?? 0, source: "questrade")
             }
         } catch {
             didSucceed = false
