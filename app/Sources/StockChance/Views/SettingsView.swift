@@ -51,10 +51,17 @@ struct SettingsView: View {
 
     @MainActor
     private func save() async {
-        guard let url = URL(string: urlText), url.scheme != nil, url.host != nil else {
-            statusMessage = "❌ Invalid URL"
+        var trimmed = urlText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.lowercased().hasPrefix("http://") && !trimmed.lowercased().hasPrefix("https://") {
+            trimmed = "http://" + trimmed
+        }
+        guard let url = URL(string: trimmed),
+              let scheme = url.scheme, !scheme.isEmpty,
+              let host = url.host, !host.isEmpty else {
+            statusMessage = "❌ Invalid URL - example: http://10.0.0.221:8000"
             return
         }
+        urlText = trimmed
         apiConfig.baseURL = url
         isChecking = true
         statusMessage = nil
