@@ -1,4 +1,10 @@
 import SwiftUI
+import UserNotifications
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 struct SettingsView: View {
     @EnvironmentObject private var apiConfig: APIConfig
@@ -21,6 +27,8 @@ struct SettingsView: View {
     @State private var questradeRefreshTokenText: String = ""
     @State private var questradeStatusMessage: String?
     @State private var isConnectingQuestrade = false
+
+    @State private var notificationStatus: UNAuthorizationStatus = .notDetermined
 
     var body: some View {
         NavigationStack {
@@ -58,6 +66,27 @@ struct SettingsView: View {
                     Text("Risk Tools")
                 } footer: {
                     Text("Figure out how many shares to buy based on your account size, how much you're willing to risk, and your stop-loss.")
+                }
+
+                Section {
+                    LabeledContent("Status") {
+                        Text(notificationStatusLabel)
+                            .foregroundStyle(notificationStatusColor)
+                    }
+                    if notificationStatus == .notDetermined {
+                        Button("Enable Notifications") {
+                            NotificationManager.shared.requestAuthorization()
+                            Task { await refreshNotificationStatus() }
+                        }
+                    } else if notificationStatus == .denied {
+                        Button("Open Notification Settings") {
+                            openSystemNotificationSettings()
+                        }
+                    }
+                } header: {
+                    Text("Notifications")
+                } footer: {
+                    Text("Stock Chance uses local notifications for watchlist price/signal alerts and \"time to sell\" position alerts - checked live while the app is open, and periodically in the background. For background alerts to arrive, enable notifications here and Background App Refresh in iOS Settings > General > Background App Refresh.")
                 }
 
                 Section {
@@ -207,7 +236,44 @@ struct SettingsView: View {
                 liveApiKeyIdText = brokerStore.liveApiKeyId
                 liveApiSecretKeyText = brokerStore.liveApiSecretKey
             }
+            .task {
+                await refreshNotificationStatus()
+            }
         }
+    }
+
+    private var notificationStatusLabel: String {
+        switch notificationStatus {
+        case .authorized, .provisional, .ephemeral: return "Enabled"
+        case .denied: return "Denied"
+        case .notDetermined: return "Not Enabled"
+        @unknown default: return "Unknown"
+        }
+    }
+
+    private var notificationStatusColor: Color {
+        switch notificationStatus {
+        case .authorized, .provisional, .ephemeral: return Theme.profit
+        case .denied: return Theme.loss
+        default: return Theme.textSecondary
+        }
+    }
+
+    @MainActor
+    private func refreshNotificationStatus() async {
+        notificationStatus = await NotificationManager.shared.authorizationStatus()
+    }
+
+    private func openSystemNotificationSettings() {
+        #if os(iOS)
+        if let url = URL(string: UIApplication.openSettingsURLString) {
+            UIApplication.shared.open(url)
+        }
+        #elseif os(macOS)
+        if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") {
+            NSWorkspace.shared.open(url)
+        }
+        #endif
     }
 
     @MainActor

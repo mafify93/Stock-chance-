@@ -26,6 +26,9 @@ struct ContentView: View {
                 .tabItem { Label("Settings", systemImage: "gear") }
         }
         .tint(Theme.gold)
+        .task {
+            NotificationManager.shared.requestAuthorization()
+        }
         #if os(iOS)
         .onChange(of: scenePhase) { newPhase in
             if newPhase == .background {

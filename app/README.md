@@ -123,8 +123,9 @@ backend, use HTTPS.
    lines, and live alerts.
 7. **Search** - any stock/ETF/index/crypto/FX symbol available on Yahoo
    Finance.
-8. **Settings** - configure and test the backend connection, plus broker
-   credentials (Alpaca paper/live, Questrade).
+8. **Settings** - configure and test the backend connection, broker
+   credentials (Alpaca paper/live, Questrade), and check/enable notification
+   permissions.
 
 ## Background alerts
 
@@ -145,3 +146,10 @@ Developer account (for an APNs key) plus a server-side scheduler, which this
 project doesn't include. For best results, make sure **Background App
 Refresh** is enabled for Stock Chance in iOS Settings > General > Background
 App Refresh.
+
+Notification permission is requested the first time the app launches. The
+**Settings** tab shows whether notifications are currently enabled and, if
+denied, a button to jump to the system notification settings for Stock
+Chance. `NotificationManager` registers itself as the
+`UNUserNotificationCenterDelegate` so alerts show as a banner even while the
+app is open, not just when it's in the background.
