@@ -12,6 +12,16 @@ struct SettingsView: View {
     @State private var brokerStatusMessage: String?
     @State private var isCheckingBroker = false
 
+    @State private var showLiveTradingConfirmation = false
+    @State private var liveApiKeyIdText: String = ""
+    @State private var liveApiSecretKeyText: String = ""
+    @State private var liveBrokerStatusMessage: String?
+    @State private var isCheckingLiveBroker = false
+
+    @State private var questradeRefreshTokenText: String = ""
+    @State private var questradeStatusMessage: String?
+    @State private var isConnectingQuestrade = false
+
     var body: some View {
         NavigationStack {
             Form {
@@ -80,9 +90,103 @@ struct SettingsView: View {
                         }
                     }
                 } header: {
-                    Text("Broker (Paper Trading)")
+                    Text("Alpaca Paper Trading")
                 } footer: {
                     Text("Connect a free Alpaca paper-trading account to place simulated Buy/Sell orders from Stock Chance with no real money at risk. Get keys at alpaca.markets (Paper Trading API Keys). Stored securely in this device's Keychain - never sent anywhere except directly to Alpaca.")
+                }
+
+                Section {
+                    Toggle("Enable Live Trading", isOn: Binding(
+                        get: { brokerStore.liveTradingAcknowledged },
+                        set: { newValue in
+                            if newValue {
+                                showLiveTradingConfirmation = true
+                            } else {
+                                brokerStore.liveTradingAcknowledged = false
+                            }
+                        }
+                    ))
+                    .tint(Theme.loss)
+                } header: {
+                    Text("Live Trading (Real Money)")
+                } footer: {
+                    Text("Enable this to connect a real Alpaca or Questrade account and place orders with real money. Every live order requires a separate confirmation before it's sent.")
+                }
+                .alert("Enable Live Trading?", isPresented: $showLiveTradingConfirmation) {
+                    Button("Cancel", role: .cancel) {}
+                    Button("I Understand - Enable", role: .destructive) {
+                        brokerStore.liveTradingAcknowledged = true
+                    }
+                } message: {
+                    Text("Live trading places REAL orders with REAL money through your Alpaca or Questrade account. Stock Chance's signals are educational technical analysis, not financial advice, and are not guaranteed to be profitable. You are solely responsible for any trades you place. Only continue if you understand and accept this risk.")
+                }
+
+                if brokerStore.liveTradingAcknowledged {
+                    Section {
+                        SecureField("Alpaca LIVE API Key ID", text: $liveApiKeyIdText)
+                            #if os(iOS)
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
+                            #endif
+                        SecureField("Alpaca LIVE API Secret Key", text: $liveApiSecretKeyText)
+                            #if os(iOS)
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
+                            #endif
+                        Button("Save & Test Connection") {
+                            Task { await saveLiveAlpaca() }
+                        }
+                        if isCheckingLiveBroker {
+                            ProgressView()
+                        } else if let liveBrokerStatusMessage {
+                            Text(liveBrokerStatusMessage)
+                                .font(.caption)
+                                .foregroundStyle(liveBrokerStatusMessage.hasPrefix("✅") ? .green : .red)
+                        }
+                        if brokerStore.liveCredentials.isConfigured {
+                            Button("Remove Live Credentials", role: .destructive) {
+                                brokerStore.clearLiveAlpaca()
+                                liveApiKeyIdText = ""
+                                liveApiSecretKeyText = ""
+                                liveBrokerStatusMessage = nil
+                            }
+                        }
+                    } header: {
+                        Text("Alpaca Live Trading")
+                    } footer: {
+                        Text("Uses your Alpaca LIVE account API keys - these are different from your paper keys. Orders placed here use real money in your real brokerage account.")
+                    }
+
+                    Section {
+                        if brokerStore.isQuestradeConfigured {
+                            LabeledContent("Connected Account", value: brokerStore.questradeAccountNumber)
+                            Button("Disconnect Questrade", role: .destructive) {
+                                brokerStore.clearQuestrade()
+                                questradeRefreshTokenText = ""
+                                questradeStatusMessage = nil
+                            }
+                        } else {
+                            SecureField("Questrade Refresh Token", text: $questradeRefreshTokenText)
+                                #if os(iOS)
+                                .autocorrectionDisabled()
+                                .textInputAutocapitalization(.never)
+                                #endif
+                            Button("Connect") {
+                                Task { await connectQuestrade() }
+                            }
+                        }
+                        if isConnectingQuestrade {
+                            ProgressView()
+                        } else if let questradeStatusMessage {
+                            Text(questradeStatusMessage)
+                                .font(.caption)
+                                .foregroundStyle(questradeStatusMessage.hasPrefix("✅") ? .green : .red)
+                        }
+                    } header: {
+                        Text("Questrade Live Trading")
+                    } footer: {
+                        Text("Generate a personal refresh token from Questrade's App Hub (questrade.com -> My Apps -> Personal apps), then paste it here once. Stock Chance exchanges it for an access token and refreshes it automatically. Orders placed here use real money in your real brokerage account.")
+                    }
                 }
 
                 Section("About") {
@@ -100,6 +204,8 @@ struct SettingsView: View {
                 urlText = apiConfig.baseURL.absoluteString
                 apiKeyIdText = brokerStore.apiKeyId
                 apiSecretKeyText = brokerStore.apiSecretKey
+                liveApiKeyIdText = brokerStore.liveApiKeyId
+                liveApiSecretKeyText = brokerStore.liveApiSecretKey
             }
         }
     }
@@ -151,11 +257,67 @@ struct SettingsView: View {
 
         let client = APIClient(baseURL: apiConfig.baseURL)
         do {
-            let account = try await client.brokerAccount(credentials: brokerStore.credentials)
+            let account = try await client.brokerAccount(credentials: brokerStore.paperCredentials)
             let value = account.portfolioValue.map { $0.formatted(.currency(code: account.currency ?? "USD")) } ?? "n/a"
             brokerStatusMessage = "✅ Connected (paper account, portfolio value \(value))"
         } catch {
             brokerStatusMessage = "❌ \(error.localizedDescription)"
+        }
+    }
+
+    @MainActor
+    private func saveLiveAlpaca() async {
+        let keyId = liveApiKeyIdText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let secretKey = liveApiSecretKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !keyId.isEmpty, !secretKey.isEmpty else {
+            liveBrokerStatusMessage = "❌ Enter both your live API Key ID and Secret Key"
+            return
+        }
+        brokerStore.liveApiKeyId = keyId
+        brokerStore.liveApiSecretKey = secretKey
+
+        isCheckingLiveBroker = true
+        liveBrokerStatusMessage = nil
+        defer { isCheckingLiveBroker = false }
+
+        let client = APIClient(baseURL: apiConfig.baseURL)
+        do {
+            let account = try await client.brokerAccount(credentials: brokerStore.liveCredentials)
+            let value = account.portfolioValue.map { $0.formatted(.currency(code: account.currency ?? "USD")) } ?? "n/a"
+            liveBrokerStatusMessage = "✅ Connected to LIVE account (portfolio value \(value)). Orders placed against this account use real money."
+        } catch {
+            liveBrokerStatusMessage = "❌ \(error.localizedDescription)"
+        }
+    }
+
+    @MainActor
+    private func connectQuestrade() async {
+        let token = questradeRefreshTokenText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty else {
+            questradeStatusMessage = "❌ Enter your Questrade refresh token"
+            return
+        }
+
+        isConnectingQuestrade = true
+        questradeStatusMessage = nil
+        defer { isConnectingQuestrade = false }
+
+        brokerStore.questradeRefreshToken = token
+        let client = APIClient(baseURL: apiConfig.baseURL)
+        do {
+            try await brokerStore.refreshQuestradeToken(client: client)
+            let accounts = try await client.questradeAccounts(credentials: brokerStore.questradeCredentials)
+            guard let first = accounts.first else {
+                brokerStore.clearQuestrade()
+                questradeStatusMessage = "❌ No Questrade accounts found on this login."
+                return
+            }
+            brokerStore.questradeAccountNumber = first.accountNumber
+            questradeRefreshTokenText = ""
+            questradeStatusMessage = "✅ Connected to Questrade account \(first.accountNumber). Orders placed against this account use real money."
+        } catch {
+            brokerStore.clearQuestrade()
+            questradeStatusMessage = "❌ \(error.localizedDescription)"
         }
     }
 }

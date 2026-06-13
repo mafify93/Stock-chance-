@@ -461,3 +461,80 @@ struct BrokerOrder: Codable, Hashable {
     var submittedAt: String?
     var filledAvgPrice: Double?
 }
+
+/// Which Alpaca account a broker request targets.
+enum BrokerEnvironment: String {
+    case paper
+    case live
+}
+
+// MARK: - Broker (Questrade - LIVE, real money)
+
+struct QuestradeTokenRequest: Encodable {
+    var refreshToken: String
+}
+
+struct QuestradeAuthResponse: Codable {
+    var accessToken: String
+    var apiServer: String
+    var refreshToken: String
+    var expiresIn: Int
+    var tokenType: String
+}
+
+struct QuestradeAccount: Codable, Identifiable, Hashable {
+    var accountNumber: String
+    var type: String?
+    var status: String?
+    var isPrimary: Bool?
+
+    var id: String { accountNumber }
+}
+
+struct QuestradeBalances: Codable, Hashable {
+    var currency: String?
+    var cash: Double?
+    var marketValue: Double?
+    var totalEquity: Double?
+    var buyingPower: Double?
+}
+
+struct QuestradePosition: Codable, Identifiable, Hashable {
+    var symbol: String
+    var quantity: Double
+    var avgEntryPrice: Double
+    var currentPrice: Double?
+    var marketValue: Double?
+    var unrealizedPl: Double?
+
+    var id: String { symbol }
+}
+
+struct QuestradeSymbol: Codable, Identifiable, Hashable {
+    var symbol: String
+    var symbolId: Int
+    var description: String?
+
+    var id: Int { symbolId }
+}
+
+struct QuestradeOrderRequest: Encodable {
+    var accountNumber: String
+    var symbolId: Int
+    var symbol: String
+    var quantity: Double
+    var side: String // "Buy" | "Sell"
+    var orderType: String = "Market"
+    var timeInForce: String = "Day"
+    var limitPrice: Double?
+}
+
+struct QuestradeOrder: Codable, Hashable {
+    var id: Int
+    var symbol: String?
+    var quantity: Double?
+    var side: String?
+    var type: String?
+    var state: String?
+    var avgExecPrice: Double?
+}

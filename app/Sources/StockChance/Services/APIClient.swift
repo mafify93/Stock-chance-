@@ -162,7 +162,7 @@ struct APIClient {
         return try await get("/api/daytrade/movers", query: query)
     }
 
-    // MARK: - Broker (Alpaca paper trading)
+    // MARK: - Broker (Alpaca paper or live)
 
     func brokerAccount(credentials: BrokerCredentials) async throws -> BrokerAccount {
         try await get("/api/broker/account", headers: credentials.headers)
@@ -175,19 +175,58 @@ struct APIClient {
     func placeBrokerOrder(_ order: BrokerOrderRequest, credentials: BrokerCredentials) async throws -> BrokerOrder {
         try await post("/api/broker/order", body: order, headers: credentials.headers)
     }
+
+    // MARK: - Broker (Questrade - LIVE, real money)
+
+    func questradeToken(refreshToken: String) async throws -> QuestradeAuthResponse {
+        try await post("/api/broker/questrade/token", body: QuestradeTokenRequest(refreshToken: refreshToken))
+    }
+
+    func questradeAccounts(credentials: QuestradeCredentials) async throws -> [QuestradeAccount] {
+        try await get("/api/broker/questrade/accounts", headers: credentials.headers)
+    }
+
+    func questradeBalances(accountNumber: String, credentials: QuestradeCredentials) async throws -> QuestradeBalances {
+        try await get("/api/broker/questrade/balances", query: ["account_number": accountNumber], headers: credentials.headers)
+    }
+
+    func questradeSymbols(_ query: String, credentials: QuestradeCredentials) async throws -> [QuestradeSymbol] {
+        try await get("/api/broker/questrade/symbols", query: ["q": query], headers: credentials.headers)
+    }
+
+    func placeQuestradeOrder(_ order: QuestradeOrderRequest, credentials: QuestradeCredentials) async throws -> QuestradeOrder {
+        try await post("/api/broker/questrade/order", body: order, headers: credentials.headers)
+    }
 }
 
-/// Alpaca paper-trading API credentials, kept in the Keychain and sent
-/// per-request - the backend never stores them.
+/// Alpaca API credentials, kept in the Keychain and sent per-request - the
+/// backend never stores them. `environment` selects between Alpaca's
+/// simulated paper account and the user's REAL live account.
 struct BrokerCredentials {
     var apiKeyId: String
     var apiSecretKey: String
+    var environment: BrokerEnvironment = .paper
 
     var headers: [String: String] {
-        ["Apca-Api-Key-Id": apiKeyId, "Apca-Api-Secret-Key": apiSecretKey]
+        ["Apca-Api-Key-Id": apiKeyId, "Apca-Api-Secret-Key": apiSecretKey, "Apca-Api-Env": environment.rawValue]
     }
 
     var isConfigured: Bool {
         !apiKeyId.isEmpty && !apiSecretKey.isEmpty
+    }
+}
+
+/// Questrade OAuth credentials for the user's **live** brokerage account,
+/// kept in the Keychain and sent per-request.
+struct QuestradeCredentials {
+    var accessToken: String
+    var apiServer: String
+
+    var headers: [String: String] {
+        ["Questrade-Access-Token": accessToken, "Questrade-Api-Server": apiServer]
+    }
+
+    var isConfigured: Bool {
+        !accessToken.isEmpty && !apiServer.isEmpty
     }
 }

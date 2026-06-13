@@ -250,3 +250,69 @@ class BrokerOrder(BaseModel):
     status: str | None = None
     submitted_at: str | None = None
     filled_avg_price: float | None = None
+
+
+# --- Broker (Questrade - LIVE, real money) -----------------------------------
+
+
+class QuestradeTokenRequest(BaseModel):
+    refresh_token: str
+
+
+class QuestradeAuthResponse(BaseModel):
+    access_token: str
+    api_server: str
+    refresh_token: str
+    expires_in: int
+    token_type: str = "Bearer"
+
+
+class QuestradeAccount(BaseModel):
+    account_number: str
+    type: str | None = None
+    status: str | None = None
+    is_primary: bool | None = None
+
+
+class QuestradeBalances(BaseModel):
+    currency: str | None = None
+    cash: float | None = None
+    market_value: float | None = None
+    total_equity: float | None = None
+    buying_power: float | None = None
+
+
+class QuestradePosition(BaseModel):
+    symbol: str
+    quantity: float
+    avg_entry_price: float
+    current_price: float | None = None
+    market_value: float | None = None
+    unrealized_pl: float | None = None
+
+
+class QuestradeSymbol(BaseModel):
+    symbol: str
+    symbol_id: int
+    description: str | None = None
+
+
+class QuestradeOrderRequest(BaseModel):
+    account_number: str
+    symbol_id: int
+    symbol: str
+    quantity: float
+    side: str  # "Buy" | "Sell"
+    order_type: str = "Market"
+    time_in_force: str = "Day"
+    limit_price: float | None = None
+
+
+class QuestradeOrder(BaseModel):
+    id: int
+    symbol: str | None = None
+    quantity: float | None = None
+    side: str | None = None
+    type: str | None = None
+    state: str | None = None
+    avg_exec_price: float | None = None

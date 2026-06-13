@@ -78,7 +78,6 @@ struct StockDetailView: View {
                 symbol: symbol,
                 side: item.side,
                 suggestedPrice: viewModel.quote?.price,
-                credentials: brokerStore.credentials,
                 baseURL: apiConfig.baseURL
             )
         }
@@ -149,21 +148,28 @@ struct StockDetailView: View {
         }
     }
 
-    /// Buy/Sell buttons for the Alpaca **paper trading** account.
+    /// Buy/Sell buttons for connected brokerage accounts - paper trading
+    /// (simulated) and, if enabled, live Alpaca/Questrade (real money).
     @ViewBuilder
     private var tradeSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Paper Trading")
+                Text("Trading")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Theme.textPrimary)
                 Spacer()
-                Text("SIMULATED")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(Theme.gold)
+                if brokerStore.availableTradeAccounts.contains(where: \.isLive) {
+                    Text("LIVE ACCOUNT CONNECTED")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(Theme.loss)
+                } else {
+                    Text("SIMULATED")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(Theme.gold)
+                }
             }
 
-            if brokerStore.isConfigured {
+            if !brokerStore.availableTradeAccounts.isEmpty {
                 HStack(spacing: 12) {
                     Button {
                         orderSheetItem = OrderSheetItem(side: "buy")
@@ -182,7 +188,7 @@ struct StockDetailView: View {
                     .buttonStyle(LuxuryButtonStyle(prominent: false))
                 }
             } else {
-                Text("Connect a free Alpaca paper-trading account in Settings to place simulated Buy/Sell orders - no real money at risk.")
+                Text("Connect a free Alpaca paper-trading account in Settings to place simulated Buy/Sell orders - no real money at risk. Live trading with a real Alpaca or Questrade account can also be enabled in Settings.")
                     .font(.caption)
                     .foregroundStyle(Theme.textSecondary)
             }
