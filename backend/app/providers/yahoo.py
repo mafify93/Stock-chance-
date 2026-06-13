@@ -91,6 +91,9 @@ def get_premarket_info(symbol: str) -> dict:
         "previous_close": previous_close,
         "regular_market_price": info.get("regularMarketPrice"),
         "regular_market_change_percent": info.get("regularMarketChangePercent"),
+        "regular_market_volume": info.get("regularMarketVolume"),
+        "average_volume": info.get("averageVolume") or info.get("averageVolume10days"),
+        "market_cap": info.get("marketCap"),
     }
 
     if info.get("preMarketPrice") is not None:

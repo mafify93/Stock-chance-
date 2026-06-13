@@ -115,6 +115,16 @@ extension View {
         modifier(LuxuryCardModifier())
     }
 
+    /// Numeric decimal keyboard on iOS; no-op on macOS.
+    @ViewBuilder
+    func decimalKeyboard() -> some View {
+        #if os(iOS)
+        self.keyboardType(.decimalPad)
+        #else
+        self
+        #endif
+    }
+
     /// Applies the app's dark charcoal gradient background and makes
     /// List/ScrollView backgrounds transparent so it shows through.
     func luxuryBackground() -> some View {

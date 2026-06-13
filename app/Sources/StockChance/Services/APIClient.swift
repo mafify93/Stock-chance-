@@ -24,7 +24,13 @@ struct APIClient {
         return decoder
     }()
 
-    private func get<T: Decodable>(_ path: String, query: [String: String] = [:]) async throws -> T {
+    static let encoder: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        return encoder
+    }()
+
+    private func get<T: Decodable>(_ path: String, query: [String: String] = [:], headers: [String: String] = [:]) async throws -> T {
         var components = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
         if !query.isEmpty {
             components.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
@@ -33,10 +39,49 @@ struct APIClient {
             throw APIError.server("Invalid URL")
         }
 
+        var request = URLRequest(url: url)
+        for (key, value) in headers {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await URLSession.shared.data(from: url)
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            throw APIError.transport(error)
+        }
+
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            let message = String(data: data, encoding: .utf8) ?? "HTTP \(http.statusCode)"
+            throw APIError.server(message)
+        }
+
+        do {
+            return try Self.decoder.decode(T.self, from: data)
+        } catch {
+            throw APIError.decoding(error)
+        }
+    }
+
+    private func post<T: Decodable, B: Encodable>(_ path: String, body: B, headers: [String: String] = [:]) async throws -> T {
+        let url = baseURL.appendingPathComponent(path)
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        for (key, value) in headers {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+        do {
+            request.httpBody = try Self.encoder.encode(body)
+        } catch {
+            throw APIError.decoding(error)
+        }
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
         } catch {
             throw APIError.transport(error)
         }
@@ -107,5 +152,42 @@ struct APIClient {
             query["symbols"] = symbols.joined(separator: ",")
         }
         return try await get("/api/daytrade/top-pick", query: query)
+    }
+
+    func movers(symbols: [String]? = nil, top: Int = 10) async throws -> MoversResponse {
+        var query = ["top": String(top)]
+        if let symbols, !symbols.isEmpty {
+            query["symbols"] = symbols.joined(separator: ",")
+        }
+        return try await get("/api/daytrade/movers", query: query)
+    }
+
+    // MARK: - Broker (Alpaca paper trading)
+
+    func brokerAccount(credentials: BrokerCredentials) async throws -> BrokerAccount {
+        try await get("/api/broker/account", headers: credentials.headers)
+    }
+
+    func brokerPositions(credentials: BrokerCredentials) async throws -> [BrokerPosition] {
+        try await get("/api/broker/positions", headers: credentials.headers)
+    }
+
+    func placeBrokerOrder(_ order: BrokerOrderRequest, credentials: BrokerCredentials) async throws -> BrokerOrder {
+        try await post("/api/broker/order", body: order, headers: credentials.headers)
+    }
+}
+
+/// Alpaca paper-trading API credentials, kept in the Keychain and sent
+/// per-request - the backend never stores them.
+struct BrokerCredentials {
+    var apiKeyId: String
+    var apiSecretKey: String
+
+    var headers: [String: String] {
+        ["Apca-Api-Key-Id": apiKeyId, "Apca-Api-Secret-Key": apiSecretKey]
+    }
+
+    var isConfigured: Bool {
+        !apiKeyId.isEmpty && !apiSecretKey.isEmpty
     }
 }

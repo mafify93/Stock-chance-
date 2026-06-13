@@ -39,3 +39,13 @@ DAYTRADE_UNIVERSE: list[str] = [
     "COIN", "PLTR", "SOFI", "RIVN", "F", "BAC",
     "MARA", "MSTR", "SMCI", "UBER",
 ]
+
+# Higher-beta small/mid-cap names that tend to see outsized pre-market gaps
+# and volume spikes - used by the "Pre-Market Movers" scan in addition to
+# DAYTRADE_UNIVERSE. Still liquid, exchange-listed names (not obscure penny
+# stocks) so quotes and volume data are reliable.
+EXTENDED_MOVERS_UNIVERSE: list[str] = DAYTRADE_UNIVERSE + [
+    "LCID", "NIO", "AI", "IONQ", "RKLB", "ACHR", "JOBY", "CGC", "TLRY",
+    "FUBO", "CLSK", "RIOT", "HUT", "BBAI", "SIRI", "PLUG", "DKNG",
+    "AFRM", "UPST",
+]

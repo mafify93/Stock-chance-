@@ -10,10 +10,11 @@ from fastapi.concurrency import run_in_threadpool
 from .. import models
 from ..intraday import compute_day_signal, get_market_session
 from ..morning_scan import evaluate_candidate
+from ..premarket_movers import evaluate_mover
 from ..providers import yahoo
 from ..signals import analyze
 from ..top_pick import evaluate_opportunity
-from ..universe import DAYTRADE_UNIVERSE
+from ..universe import DAYTRADE_UNIVERSE, EXTENDED_MOVERS_UNIVERSE
 
 router = APIRouter(prefix="/api/daytrade", tags=["daytrade"])
 
@@ -128,6 +129,54 @@ async def morning_scan(
         buy_at_open=buy_at_open[:top],
         watch=watch[:top],
         avoid=avoid[:top],
+        errors=errors,
+    )
+
+
+@router.get("/movers", response_model=models.MoversResponse)
+async def movers(
+    symbols: str | None = Query(
+        None,
+        description="Comma-separated list of symbols to scan. Defaults to a broad set of liquid, high-beta stocks/ETFs.",
+    ),
+    top: int = Query(10, ge=1, le=25, description="Max number of results"),
+):
+    """"Pre-Market Movers" - what's unusually active before the open.
+
+    Ranks symbols by the size of their overnight price gap and how their
+    volume compares to its own average, with risk flags for extreme or
+    illiquid movers. This highlights what's *already* moving and why - it
+    does not predict how far a move will go.
+    """
+    symbol_list = (
+        [s.strip().upper() for s in symbols.split(",") if s.strip()]
+        if symbols
+        else EXTENDED_MOVERS_UNIVERSE
+    )
+
+    sem = asyncio.Semaphore(_CONCURRENCY)
+    movers_list: list[models.MoverCandidate] = []
+    errors: dict[str, str] = {}
+
+    async def process(sym: str) -> None:
+        async with sem:
+            try:
+                daily_df = await run_in_threadpool(yahoo.get_history, sym, "6mo", "1d")
+                premarket = await run_in_threadpool(yahoo.get_premarket_info, sym)
+                candidate = await run_in_threadpool(evaluate_mover, sym, daily_df, premarket)
+                if candidate is not None:
+                    movers_list.append(models.MoverCandidate(**dataclasses.asdict(candidate)))
+            except Exception as exc:  # noqa: BLE001
+                errors[sym] = str(exc)
+
+    await asyncio.gather(*(process(sym) for sym in symbol_list))
+
+    ranked = sorted(movers_list, key=lambda m: m.momentum_score, reverse=True)
+
+    return models.MoversResponse(
+        generated_at=datetime.now(timezone.utc).isoformat(),
+        session=dataclasses.asdict(get_market_session()),
+        movers=ranked[:top],
         errors=errors,
     )
 

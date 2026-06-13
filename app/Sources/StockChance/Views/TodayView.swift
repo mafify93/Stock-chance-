@@ -63,6 +63,10 @@ struct TodayView: View {
                         }
                     }
 
+                    if !viewModel.movers.isEmpty {
+                        moversSection
+                    }
+
                     candidateSection(
                         eyebrow: "TOP PICKS",
                         title: "Buy at Open",
@@ -91,6 +95,33 @@ struct TodayView: View {
             }
             .navigationDestination(for: String.self) { symbol in
                 StockDetailView(symbol: symbol)
+            }
+        }
+    }
+
+    private var moversSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("PRE-MARKET")
+                    .luxuryEyebrow()
+                InfoTooltip(title: TradingGlossary.momentumScore.0, text: TradingGlossary.momentumScore.1)
+            }
+            Text("Pre-Market Movers")
+                .font(Theme.sectionTitleFont())
+                .foregroundStyle(Theme.textPrimary)
+            Text("What's unusually active right now - not a prediction of how far a move will go.")
+                .font(.caption)
+                .foregroundStyle(Theme.textSecondary)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(viewModel.movers) { mover in
+                        NavigationLink(value: mover.symbol) {
+                            MoverCard(mover: mover)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
             }
         }
     }
@@ -178,5 +209,57 @@ private struct MorningCandidateCard: View {
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(Theme.textPrimary)
         }
+    }
+}
+
+/// Compact card for a single "Pre-Market Movers" candidate: price, overnight
+/// gap, relative volume, and risk flags for extreme/illiquid movers.
+private struct MoverCard: View {
+    let mover: MoverCandidate
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(mover.symbol)
+                .font(Theme.priceFont(18))
+                .foregroundStyle(Theme.textPrimary)
+
+            Text(mover.price, format: .currency(code: "USD"))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(Theme.textSecondary)
+
+            Text("\(mover.changePercent >= 0 ? "+" : "")\(mover.changePercent, specifier: "%.2f")%")
+                .font(.subheadline.weight(.semibold).monospacedDigit())
+                .foregroundStyle(mover.changePercent >= 0 ? Theme.profit : Theme.loss)
+
+            if let relVol = mover.relativeVolume {
+                Text("\(relVol, specifier: "%.1f")x avg volume")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(Theme.textSecondary)
+            }
+
+            if !mover.riskFlags.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(mover.riskFlags, id: \.self) { flag in
+                        if let risk = MoverRiskFlag(rawValue: flag) {
+                            Text(risk.label)
+                                .font(.caption2.weight(.semibold))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Theme.loss.opacity(0.18))
+                                .foregroundStyle(Theme.loss)
+                                .clipShape(Capsule())
+                        }
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .frame(width: 140, alignment: .leading)
+        .background(Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Theme.cardBorder.opacity(0.5), lineWidth: 1)
+        )
     }
 }

@@ -174,3 +174,79 @@ class TopPickResponse(BaseModel):
         "price targets into one ranked idea. It is automated technical analysis, not financial "
         "advice - always do your own research before risking money."
     )
+
+
+# --- Pre-Market Movers --------------------------------------------------------
+
+
+class MoverCandidate(BaseModel):
+    symbol: str
+    price: float
+    change_percent: float
+    data_mode: str
+    relative_volume: float | None = None
+    average_volume: float | None = None
+    market_cap: float | None = None
+    momentum_score: float
+    daily_trend: str
+    risk_flags: list[str] = []
+    reasons: list[str] = []
+
+
+class MoversResponse(BaseModel):
+    generated_at: str
+    session: MarketSessionResponse
+    movers: list[MoverCandidate]
+    errors: dict[str, str] = {}
+    disclaimer: str = (
+        "\"Pre-Market Movers\" ranks stocks by their overnight price gap and trading volume "
+        "relative to their own average - it highlights what's unusually active right now, it "
+        "does NOT predict how far a move will go. No algorithm can reliably predict a stock "
+        "jumping from $1 to $30 in a day. Extreme gaps and low-liquidity (penny) stocks are "
+        "flagged because they carry a much higher risk of sudden, violent reversals - never "
+        "chase a big gap without a plan, a stop-loss, and a position size you can afford to lose."
+    )
+
+
+# --- Broker (Alpaca paper trading) -------------------------------------------
+
+
+class BrokerAccount(BaseModel):
+    account_number: str | None = None
+    status: str | None = None
+    buying_power: float | None = None
+    cash: float | None = None
+    portfolio_value: float | None = None
+    equity: float | None = None
+    currency: str | None = None
+    pattern_day_trader: bool | None = None
+    trading_blocked: bool | None = None
+
+
+class BrokerPosition(BaseModel):
+    symbol: str
+    quantity: float
+    avg_entry_price: float
+    current_price: float | None = None
+    market_value: float | None = None
+    unrealized_pl: float | None = None
+    unrealized_plpc: float | None = None
+
+
+class BrokerOrderRequest(BaseModel):
+    symbol: str
+    quantity: float
+    side: str  # "buy" | "sell"
+    type: str = "market"
+    time_in_force: str = "day"
+
+
+class BrokerOrder(BaseModel):
+    id: str
+    symbol: str
+    quantity: float | None = None
+    side: str | None = None
+    type: str | None = None
+    status: str | None = None
+    submitted_at: str | None = None
+    filled_avg_price: float | None = None

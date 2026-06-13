@@ -128,8 +128,41 @@ private struct PositionRow: View {
             if let alert = signal?.alert {
                 AlertBanner(alert: alert)
             }
+
+            if let signal {
+                PositionCoachView(coach: PositionCoach.evaluate(position: position, signal: signal))
+            }
         }
         .padding(.vertical, 6)
         .listRowBackground(Theme.card)
+    }
+}
+
+/// "Sell/Hold Position Coach" - a plain-language Hold / Take Profit / Cut
+/// Loss recommendation with a confidence percentage, based on the user's
+/// real entry price vs. the live same-day signal.
+private struct PositionCoachView: View {
+    let coach: PositionCoachResult
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: coach.action.systemImage)
+                Text("Coach: \(coach.action.label)")
+                    .fontWeight(.semibold)
+                Text("\(Int(coach.confidence))%")
+                    .opacity(0.7)
+                Spacer()
+            }
+            .font(.caption)
+            .foregroundStyle(coach.action.color)
+
+            Text(coach.message)
+                .font(.caption2)
+                .foregroundStyle(Theme.textSecondary)
+        }
+        .padding(8)
+        .background(coach.action.color.opacity(0.10))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }

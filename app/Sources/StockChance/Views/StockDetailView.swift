@@ -7,7 +7,9 @@ struct StockDetailView: View {
     @StateObject private var watchlist = WatchlistStore.shared
     @StateObject private var positions = PositionStore.shared
     @State private var showBuySheet = false
+    @State private var orderSheetItem: OrderSheetItem?
     @EnvironmentObject private var apiConfig: APIConfig
+    @EnvironmentObject private var brokerStore: BrokerStore
 
     init(symbol: String) {
         self.symbol = symbol
@@ -26,6 +28,7 @@ struct StockDetailView: View {
                 } else {
                     header
                     positionSection
+                    tradeSection
                     if !viewModel.candles.isEmpty {
                         PriceChartView(candles: viewModel.candles)
                             .luxuryCard()
@@ -69,6 +72,15 @@ struct StockDetailView: View {
                 positions.add(symbol: symbol, entryPrice: price, quantity: quantity)
                 NotificationManager.shared.requestAuthorization()
             }
+        }
+        .sheet(item: $orderSheetItem) { item in
+            BrokerOrderSheet(
+                symbol: symbol,
+                side: item.side,
+                suggestedPrice: viewModel.quote?.price,
+                credentials: brokerStore.credentials,
+                baseURL: apiConfig.baseURL
+            )
         }
     }
 
@@ -137,12 +149,54 @@ struct StockDetailView: View {
         }
     }
 
+    /// Buy/Sell buttons for the Alpaca **paper trading** account.
+    @ViewBuilder
+    private var tradeSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Paper Trading")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Theme.textPrimary)
+                Spacer()
+                Text("SIMULATED")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(Theme.gold)
+            }
+
+            if brokerStore.isConfigured {
+                HStack(spacing: 12) {
+                    Button {
+                        orderSheetItem = OrderSheetItem(side: "buy")
+                    } label: {
+                        Label("Buy", systemImage: "arrow.up.circle.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(LuxuryButtonStyle(prominent: true))
+
+                    Button {
+                        orderSheetItem = OrderSheetItem(side: "sell")
+                    } label: {
+                        Label("Sell", systemImage: "arrow.down.circle.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(LuxuryButtonStyle(prominent: false))
+                }
+            } else {
+                Text("Connect a free Alpaca paper-trading account in Settings to place simulated Buy/Sell orders - no real money at risk.")
+                    .font(.caption)
+                    .foregroundStyle(Theme.textSecondary)
+            }
+        }
+        .luxuryCard()
+    }
+
     private func signalCard(_ signal: SignalResponse) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("Signal")
                     .font(Theme.sectionTitleFont())
                     .foregroundStyle(Theme.textPrimary)
+                InfoTooltip(title: TradingGlossary.confidence.0, text: TradingGlossary.confidence.1)
                 Spacer()
                 SignalBadge(action: signal.action, confidence: signal.confidence)
             }
@@ -189,9 +243,12 @@ struct StockDetailView: View {
         return Group {
             if !pairs.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Suggested Levels (ATR-based)")
-                        .font(Theme.sectionTitleFont())
-                        .foregroundStyle(Theme.textPrimary)
+                    HStack {
+                        Text("Suggested Levels (ATR-based)")
+                            .font(Theme.sectionTitleFont())
+                            .foregroundStyle(Theme.textPrimary)
+                        InfoTooltip(title: TradingGlossary.stopLoss.0, text: "\(TradingGlossary.stopLoss.1)\n\n\(TradingGlossary.takeProfit.0): \(TradingGlossary.takeProfit.1)")
+                    }
                     ForEach(pairs, id: \.0) { label, value in
                         HStack {
                             Text(label)
@@ -207,11 +264,20 @@ struct StockDetailView: View {
                         HStack {
                             Text("Risk / Reward")
                                 .foregroundStyle(Theme.textPrimary)
+                            InfoTooltip(title: TradingGlossary.riskReward.0, text: TradingGlossary.riskReward.1)
                             Spacer()
                             Text("1 : \(rr, specifier: "%.1f")")
                                 .foregroundStyle(Theme.textSecondary)
                         }
                         .font(.subheadline)
+                    }
+                    if let entry = levels.suggestedEntry, let stop = levels.stopLoss {
+                        NavigationLink {
+                            RiskCalculatorView(initialEntry: entry, initialStop: stop)
+                        } label: {
+                            Label("Position Size Calculator", systemImage: "function")
+                                .font(.caption)
+                        }
                     }
                 }
                 .luxuryCard()
@@ -274,9 +340,12 @@ struct StockDetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("SAME-DAY")
                 .luxuryEyebrow()
-            Text("Day Trade Signal")
-                .font(Theme.sectionTitleFont())
-                .foregroundStyle(Theme.textPrimary)
+            HStack {
+                Text("Day Trade Signal")
+                    .font(Theme.sectionTitleFont())
+                    .foregroundStyle(Theme.textPrimary)
+                InfoTooltip(title: TradingGlossary.vwap.0, text: "\(TradingGlossary.vwap.1)\n\n\(TradingGlossary.openingRange.0): \(TradingGlossary.openingRange.1)\n\n\(TradingGlossary.volumeSpike.0): \(TradingGlossary.volumeSpike.1)")
+            }
 
             if let daySignal = viewModel.daySignal {
                 MarketSessionBanner(session: daySignal.session)
@@ -403,6 +472,12 @@ struct StockDetailView: View {
     private func formatted(_ value: Double) -> String {
         value.formatted(.currency(code: viewModel.quote?.currency ?? "USD"))
     }
+}
+
+/// Identifies which side of a paper-trading order sheet to present.
+private struct OrderSheetItem: Identifiable {
+    let side: String // "buy" | "sell"
+    var id: String { side }
 }
 
 /// Sheet for recording entry price + quantity when the user taps

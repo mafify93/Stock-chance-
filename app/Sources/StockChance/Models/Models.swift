@@ -372,3 +372,92 @@ struct Position: Codable, Identifiable, Hashable {
     var quantity: Double
     var boughtAt: Date
 }
+
+// MARK: - Pre-Market Movers
+
+struct MoverCandidate: Codable, Identifiable, Hashable {
+    var symbol: String
+    var price: Double
+    var changePercent: Double
+    var dataMode: String
+    var relativeVolume: Double?
+    var averageVolume: Double?
+    var marketCap: Double?
+    var momentumScore: Double
+    var dailyTrend: TradeAction
+    var riskFlags: [String]
+    var reasons: [String]
+
+    var id: String { symbol }
+}
+
+enum MoverRiskFlag: String {
+    case extremeMove = "EXTREME_MOVE"
+    case lowPrice = "LOW_PRICE"
+    case lowLiquidity = "LOW_LIQUIDITY"
+
+    var label: String {
+        switch self {
+        case .extremeMove: return "Extreme Move"
+        case .lowPrice: return "Low Price"
+        case .lowLiquidity: return "Low Liquidity"
+        }
+    }
+}
+
+struct MoversResponse: Codable, Hashable {
+    var generatedAt: String
+    var session: MarketSession
+    var movers: [MoverCandidate]
+    var disclaimer: String
+}
+
+// MARK: - Broker (Alpaca paper trading)
+
+struct BrokerAccount: Codable, Hashable {
+    var accountNumber: String?
+    var status: String?
+    var buyingPower: Double?
+    var cash: Double?
+    var portfolioValue: Double?
+    var equity: Double?
+    var currency: String?
+    var patternDayTrader: Bool?
+    var tradingBlocked: Bool?
+}
+
+struct BrokerPosition: Codable, Identifiable, Hashable {
+    var symbol: String
+    var quantity: Double
+    var avgEntryPrice: Double
+    var currentPrice: Double?
+    var marketValue: Double?
+    var unrealizedPl: Double?
+    var unrealizedPlpc: Double?
+
+    var id: String { symbol }
+}
+
+struct BrokerOrderRequest: Encodable {
+    var symbol: String
+    var quantity: Double
+    var side: String
+    var type: String = "market"
+    var timeInForce: String = "day"
+
+    enum CodingKeys: String, CodingKey {
+        case symbol, quantity, side, type
+        case timeInForce = "time_in_force"
+    }
+}
+
+struct BrokerOrder: Codable, Hashable {
+    var id: String
+    var symbol: String?
+    var quantity: Double?
+    var side: String?
+    var type: String?
+    var status: String?
+    var submittedAt: String?
+    var filledAvgPrice: Double?
+}
