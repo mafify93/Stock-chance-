@@ -9,7 +9,7 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Backend Server") {
+                Section {
                     TextField("http://127.0.0.1:8000", text: $urlText)
                         #if os(iOS)
                         .keyboardType(.URL)
@@ -26,6 +26,8 @@ struct SettingsView: View {
                             .font(.caption)
                             .foregroundStyle(statusMessage.hasPrefix("✅") ? .green : .red)
                     }
+                } header: {
+                    Text("Backend Server")
                 } footer: {
                     Text("Point this at your deployed Stock Chance backend (see /backend in the repo). For the iOS Simulator and Mac you can use http://127.0.0.1:8000 while running it locally; a physical iPhone needs your computer's LAN IP or a public URL.")
                 }

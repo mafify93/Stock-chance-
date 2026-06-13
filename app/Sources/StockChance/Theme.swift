@@ -108,7 +108,7 @@ struct LuxuryButtonStyle: ButtonStyle {
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
             .background(
-                Capsule().fill(prominent ? Theme.goldGradient : AnyShapeStyle(Theme.backgroundElevated))
+                Capsule().fill(prominent ? AnyShapeStyle(Theme.goldGradient) : AnyShapeStyle(Theme.backgroundElevated))
             )
             .foregroundStyle(prominent ? Color.black : Theme.gold)
             .overlay(

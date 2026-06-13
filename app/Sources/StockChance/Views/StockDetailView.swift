@@ -419,7 +419,7 @@ private struct MarkAsBoughtSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Position Details") {
+                Section {
                     LabeledContent("Entry Price") {
                         TextField("0.00", text: $priceText)
                             #if os(iOS)
@@ -434,6 +434,8 @@ private struct MarkAsBoughtSheet: View {
                             #endif
                             .multilineTextAlignment(.trailing)
                     }
+                } header: {
+                    Text("Position Details")
                 } footer: {
                     Text("We'll track \(symbol) in My Positions and let you know when the same-day signal suggests it's time to sell.")
                 }
