@@ -23,7 +23,7 @@ struct MarketSessionBanner: View {
 
             Spacer()
 
-            Text(session.nowEt)
+            Text(formattedTime)
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(Theme.textSecondary)
         }
@@ -34,6 +34,20 @@ struct MarketSessionBanner: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(Theme.cardBorder.opacity(0.5), lineWidth: 1)
         )
+    }
+
+    /// Formats the backend's ISO-8601 "now in Eastern Time" timestamp as a
+    /// short, human-readable clock time (e.g. "1:41 PM ET").
+    private var formattedTime: String {
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        guard let date = isoFormatter.date(from: session.nowEt) else {
+            return session.nowEt
+        }
+        let timeFormatter = DateFormatter()
+        timeFormatter.dateFormat = "h:mm a"
+        timeFormatter.timeZone = TimeZone(identifier: "America/New_York")
+        return timeFormatter.string(from: date) + " ET"
     }
 
     private var subtitle: String {
