@@ -1,30 +1,32 @@
 import SwiftUI
 
-/// A dark, "private trading terminal" visual theme: deep charcoal
-/// backgrounds, champagne-gold accents, and refined typography. Applied
-/// consistently across the app via the helpers below.
+/// A dark, "private trading terminal" visual theme: warm espresso-charcoal
+/// backgrounds, muted amber-gold accents, and refined typography - tuned for
+/// comfortable extended viewing (lower blue light, softer contrast) without
+/// losing the premium feel. Applied consistently across the app via the
+/// helpers below.
 enum Theme {
     // MARK: - Palette
 
-    static let background = Color(red: 0.043, green: 0.051, blue: 0.071)       // near-black charcoal
-    static let backgroundElevated = Color(red: 0.067, green: 0.078, blue: 0.106)
-    static let card = Color(red: 0.094, green: 0.106, blue: 0.137)
-    static let cardBorder = Color(red: 0.20, green: 0.18, blue: 0.13)
+    static let background = Color(red: 0.071, green: 0.063, blue: 0.059)       // warm espresso charcoal
+    static let backgroundElevated = Color(red: 0.098, green: 0.087, blue: 0.078)
+    static let card = Color(red: 0.122, green: 0.110, blue: 0.098)
+    static let cardBorder = Color(red: 0.231, green: 0.196, blue: 0.149)
 
-    static let gold = Color(red: 0.831, green: 0.686, blue: 0.376)             // champagne gold
-    static let goldBright = Color(red: 0.949, green: 0.831, blue: 0.557)
+    static let gold = Color(red: 0.776, green: 0.655, blue: 0.388)             // muted amber gold
+    static let goldBright = Color(red: 0.898, green: 0.792, blue: 0.557)
 
-    static let profit = Color(red: 0.290, green: 0.792, blue: 0.553)           // emerald
-    static let loss = Color(red: 0.910, green: 0.345, blue: 0.357)             // crimson
-    static let neutral = Color(red: 0.557, green: 0.580, blue: 0.627)
+    static let profit = Color(red: 0.345, green: 0.733, blue: 0.557)           // softened emerald
+    static let loss = Color(red: 0.851, green: 0.392, blue: 0.380)             // softened crimson
+    static let neutral = Color(red: 0.580, green: 0.565, blue: 0.541)
 
-    static let textPrimary = Color(red: 0.949, green: 0.949, blue: 0.957)
-    static let textSecondary = Color(red: 0.612, green: 0.627, blue: 0.671)
+    static let textPrimary = Color(red: 0.925, green: 0.910, blue: 0.886)      // warm ivory
+    static let textSecondary = Color(red: 0.643, green: 0.612, blue: 0.580)
 
     static let backgroundGradient = LinearGradient(
         colors: [
-            Color(red: 0.051, green: 0.059, blue: 0.082),
-            Color(red: 0.024, green: 0.027, blue: 0.039),
+            Color(red: 0.082, green: 0.071, blue: 0.063),
+            Color(red: 0.039, green: 0.035, blue: 0.031),
         ],
         startPoint: .top,
         endPoint: .bottom
