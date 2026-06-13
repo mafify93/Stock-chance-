@@ -334,6 +334,35 @@ struct MorningScanResponse: Codable, Hashable {
     var disclaimer: String
 }
 
+// MARK: - Top Pick (combined recommendation)
+
+struct Opportunity: Codable, Identifiable, Hashable {
+    var symbol: String
+    var action: TradeAction
+    var headline: String
+    var summary: String
+    var opportunityScore: Double
+    var confidence: Double
+    var price: Double
+    var changePercent: Double?
+    var entry: Double?
+    var target: Double?
+    var stop: Double?
+    var suspectedProfitPct: Double?
+    var suspectedProfitAmount: Double?
+    var analystTargetUpsidePct: Double?
+    var reasons: [String]
+
+    var id: String { symbol }
+}
+
+struct TopPickResponse: Codable, Hashable {
+    var generatedAt: String
+    var session: MarketSession
+    var picks: [Opportunity]
+    var disclaimer: String
+}
+
 // MARK: - "I bought this" positions
 
 struct Position: Codable, Identifiable, Hashable {

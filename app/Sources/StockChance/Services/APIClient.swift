@@ -100,4 +100,12 @@ struct APIClient {
         }
         return try await get("/api/daytrade/morning", query: query)
     }
+
+    func topPick(symbols: [String]? = nil, count: Int = 3) async throws -> TopPickResponse {
+        var query = ["count": String(count)]
+        if let symbols, !symbols.isEmpty {
+            query["symbols"] = symbols.joined(separator: ",")
+        }
+        return try await get("/api/daytrade/top-pick", query: query)
+    }
 }

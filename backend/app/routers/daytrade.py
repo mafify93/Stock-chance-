@@ -11,6 +11,8 @@ from .. import models
 from ..intraday import compute_day_signal, get_market_session
 from ..morning_scan import evaluate_candidate
 from ..providers import yahoo
+from ..signals import analyze
+from ..top_pick import evaluate_opportunity
 from ..universe import DAYTRADE_UNIVERSE
 
 router = APIRouter(prefix="/api/daytrade", tags=["daytrade"])
@@ -126,5 +128,68 @@ async def morning_scan(
         buy_at_open=buy_at_open[:top],
         watch=watch[:top],
         avoid=avoid[:top],
+        errors=errors,
+    )
+
+
+@router.get("/top-pick", response_model=models.TopPickResponse)
+async def top_pick(
+    symbols: str | None = Query(
+        None,
+        description="Comma-separated list of symbols to scan. Defaults to a curated set of liquid, volatile stocks/ETFs.",
+    ),
+    count: int = Query(3, ge=1, le=10, description="How many ranked ideas to return"),
+):
+    """The single best (and next-best) trade ideas right now.
+
+    Combines the longer-term daily trend, today's intraday momentum, and
+    analyst price targets into one ranked "what to do right now" idea per
+    symbol, then returns the top-ranked ideas with a plain-language summary.
+    """
+    symbol_list = (
+        [s.strip().upper() for s in symbols.split(",") if s.strip()]
+        if symbols
+        else DAYTRADE_UNIVERSE
+    )
+
+    sem = asyncio.Semaphore(_CONCURRENCY)
+    opportunities: list[models.Opportunity] = []
+    errors: dict[str, str] = {}
+
+    async def process(sym: str) -> None:
+        async with sem:
+            try:
+                daily_df = await run_in_threadpool(yahoo.get_history, sym, "6mo", "1d")
+                daily = await run_in_threadpool(analyze, sym, daily_df)
+
+                day_result = None
+                try:
+                    intraday_df = await run_in_threadpool(yahoo.get_intraday_history, sym)
+                    day_result = await run_in_threadpool(compute_day_signal, sym, intraday_df)
+                except Exception:  # noqa: BLE001 - intraday data is best-effort
+                    pass
+
+                analyst = await run_in_threadpool(yahoo.get_analyst_outlook, sym)
+
+                change_percent = None
+                try:
+                    quote = await run_in_threadpool(yahoo.get_quote, sym)
+                    change_percent = quote.get("change_percent")
+                except Exception:  # noqa: BLE001
+                    pass
+
+                opp = evaluate_opportunity(sym, daily, day_result, analyst, change_percent)
+                opportunities.append(models.Opportunity(**dataclasses.asdict(opp)))
+            except Exception as exc:  # noqa: BLE001
+                errors[sym] = str(exc)
+
+    await asyncio.gather(*(process(sym) for sym in symbol_list))
+
+    ranked = sorted(opportunities, key=lambda o: o.opportunity_score, reverse=True)
+
+    return models.TopPickResponse(
+        generated_at=datetime.now(timezone.utc).isoformat(),
+        session=dataclasses.asdict(get_market_session()),
+        picks=ranked[:count],
         errors=errors,
     )

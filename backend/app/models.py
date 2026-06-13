@@ -141,3 +141,36 @@ class MorningScanResponse(BaseModel):
         "\"Suspected profit\" is an estimate based on the stock's recent daily volatility (ATR), "
         "not a guarantee. Same-day trading is high-risk - only risk money you can afford to lose."
     )
+
+
+# --- Top Pick (combined recommendation) -------------------------------------
+
+
+class Opportunity(BaseModel):
+    symbol: str
+    action: str  # "STRONG_BUY" | "BUY" | "HOLD" | "SELL" | "STRONG_SELL"
+    headline: str
+    summary: str
+    opportunity_score: float
+    confidence: float
+    price: float
+    change_percent: float | None = None
+    entry: float | None = None
+    target: float | None = None
+    stop: float | None = None
+    suspected_profit_pct: float | None = None
+    suspected_profit_amount: float | None = None
+    analyst_target_upside_pct: float | None = None
+    reasons: list[str]
+
+
+class TopPickResponse(BaseModel):
+    generated_at: str
+    session: MarketSessionResponse
+    picks: list[Opportunity]
+    errors: dict[str, str] = {}
+    disclaimer: str = (
+        "\"Top Pick\" combines the longer-term trend, today's intraday momentum, and analyst "
+        "price targets into one ranked idea. It is automated technical analysis, not financial "
+        "advice - always do your own research before risking money."
+    )

@@ -88,6 +88,7 @@ def latest_session(df: pd.DataFrame) -> pd.DataFrame:
 class DaySignalResult:
     symbol: str
     action: str  # "DAY_BUY" | "DAY_SELL" | "DAY_HOLD"
+    score: float  # -1.0 (strong sell) .. +1.0 (strong buy)
     confidence: float
     price: float
     vwap: float | None
@@ -242,6 +243,7 @@ def compute_day_signal(symbol: str, df: pd.DataFrame) -> DaySignalResult:
     return DaySignalResult(
         symbol=symbol,
         action=action,
+        score=round(score, 4),
         confidence=confidence,
         price=round(price, 2),
         vwap=round(vwap_val, 2) if vwap_val else None,

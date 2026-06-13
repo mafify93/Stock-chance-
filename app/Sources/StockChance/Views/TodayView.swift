@@ -41,6 +41,28 @@ struct TodayView: View {
                 VStack(alignment: .leading, spacing: 20) {
                     MarketSessionBanner(session: scan.session)
 
+                    if let topPick = viewModel.topPicks.first {
+                        NavigationLink(value: topPick.symbol) {
+                            TopPickCard(opportunity: topPick)
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    if viewModel.topPicks.count > 1 {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("ALSO LOOKING GOOD")
+                                .luxuryEyebrow()
+                            VStack(spacing: 10) {
+                                ForEach(viewModel.topPicks.dropFirst()) { pick in
+                                    NavigationLink(value: pick.symbol) {
+                                        RunnerUpRow(opportunity: pick)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                    }
+
                     candidateSection(
                         eyebrow: "TOP PICKS",
                         title: "Buy at Open",

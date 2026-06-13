@@ -65,6 +65,37 @@ private struct LuxuryCardModifier: ViewModifier {
     }
 }
 
+/// A larger, glowing "hero" card used for the Top Pick recommendation - a
+/// glass-morphism treatment with a soft tinted glow matching the action
+/// (buy = green, hold = gold, sell/avoid = red).
+private struct HeroGlassCardModifier: ViewModifier {
+    let tint: Color
+
+    func body(content: Content) -> some View {
+        content
+            .padding(20)
+            .background(
+                ZStack {
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .fill(.ultraThinMaterial)
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [tint.opacity(0.30), Color.clear],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                }
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .strokeBorder(tint.opacity(0.55), lineWidth: 1.5)
+            )
+            .shadow(color: tint.opacity(0.25), radius: 24, x: 0, y: 12)
+    }
+}
+
 private struct LuxuryBackgroundModifier: ViewModifier {
     func body(content: Content) -> some View {
         ZStack {
@@ -86,6 +117,11 @@ extension View {
     /// List/ScrollView backgrounds transparent so it shows through.
     func luxuryBackground() -> some View {
         modifier(LuxuryBackgroundModifier())
+    }
+
+    /// Larger glowing "hero" card for the Top Pick recommendation.
+    func heroGlassCard(tint: Color) -> some View {
+        modifier(HeroGlassCardModifier(tint: tint))
     }
 
     /// Small gold label used for section eyebrows ("TODAY", "LIVE", etc).
