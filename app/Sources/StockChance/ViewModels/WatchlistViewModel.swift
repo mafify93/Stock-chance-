@@ -9,7 +9,6 @@ final class WatchlistViewModel: ObservableObject {
     private let stream = WatchStreamService()
     private var streamTask: Task<Void, Never>?
     private var currentSymbols: [String] = []
-    private var lastSignalAction: [String: TradeAction] = [:]
 
     @MainActor
     func start(symbols: [String], baseURL: URL) {
@@ -57,39 +56,11 @@ final class WatchlistViewModel: ObservableObject {
     /// asked to be notified about that).
     @MainActor
     private func checkAlerts(for update: LiveUpdate) {
-        let symbol = update.symbol
-        guard let alert = WatchlistAlertStore.shared.alert(for: symbol), alert.isActive else {
-            lastSignalAction[symbol] = update.signal?.action
-            return
-        }
-
-        if let quote = update.quote {
-            let currency = quote.currency ?? "USD"
-            if let above = alert.priceAbove, quote.price >= above {
-                NotificationManager.shared.notify(
-                    key: "watchlist-price-above-\(symbol)",
-                    title: "\(symbol) is above \(above.formatted(.currency(code: currency)))",
-                    body: "Now trading at \(quote.price.formatted(.currency(code: currency)))."
-                )
-            }
-            if let below = alert.priceBelow, quote.price <= below {
-                NotificationManager.shared.notify(
-                    key: "watchlist-price-below-\(symbol)",
-                    title: "\(symbol) is below \(below.formatted(.currency(code: currency)))",
-                    body: "Now trading at \(quote.price.formatted(.currency(code: currency)))."
-                )
-            }
-        }
-
-        if alert.notifyOnSignalChange, let signal = update.signal {
-            if let previous = lastSignalAction[symbol], previous != signal.action {
-                NotificationManager.shared.notify(
-                    key: "watchlist-signal-\(symbol)-\(signal.action.rawValue)",
-                    title: "\(symbol) signal changed to \(signal.action.label)",
-                    body: "The technical signal for \(symbol) just changed to \(signal.action.label)."
-                )
-            }
-            lastSignalAction[symbol] = signal.action
-        }
+        WatchlistAlertChecker.check(
+            symbol: update.symbol,
+            price: update.quote?.price,
+            currency: update.quote?.currency ?? "USD",
+            action: update.signal?.action
+        )
     }
 }

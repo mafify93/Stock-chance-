@@ -44,4 +44,14 @@ final class WatchlistAlertStore: ObservableObject {
     func remove(_ symbol: String) {
         alerts.removeValue(forKey: symbol.uppercased())
     }
+
+    /// Records the most recently observed signal action for a symbol with an
+    /// active alert, so the next change can be detected. Persisted, so this
+    /// survives app relaunches and background refreshes.
+    func updateLastSignalAction(_ action: TradeAction, for symbol: String) {
+        let key = symbol.uppercased()
+        guard var alert = alerts[key] else { return }
+        alert.lastSignalAction = action
+        alerts[key] = alert
+    }
 }

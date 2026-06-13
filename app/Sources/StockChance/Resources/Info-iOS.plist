@@ -44,5 +44,13 @@
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Stock Chance connects to your Stock Chance backend server on your local network.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.stockchance.app.refresh</string>
+	</array>
 </dict>
 </plist>

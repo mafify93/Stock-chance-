@@ -31,10 +31,13 @@ app/
       WatchStreamService.swift # Generic WebSocket client (/ws/watch and /ws/daytrade)
       WatchlistStore.swift     # Persisted watchlist (UserDefaults)
       WatchlistAlertStore.swift # Persisted per-symbol price/signal alerts (UserDefaults)
+      WatchlistAlertChecker.swift # Shared watchlist alert-matching logic (live + background)
       PositionStore.swift      # Persisted "I bought this" positions (UserDefaults)
+      PositionAlertChecker.swift # Shared position sell-alert logic (live + background)
       JournalStore.swift       # Persisted trade journal (UserDefaults)
       BrokerStore.swift        # Brokerage credentials (Alpaca paper/live, Questrade) (Keychain)
       NotificationManager.swift # Local notifications for sell/price/signal alerts
+      BackgroundRefreshManager.swift # iOS background refresh: checks alerts when the app isn't open
     ViewModels/                # @Observable view models
     Views/
       ContentView.swift         # Root TabView (Today / Watchlist / Portfolio / Screener / Search / Settings)
@@ -96,7 +99,10 @@ backend, use HTTPS.
 2. **Watchlist** - add any symbol via search; live price + Buy/Sell/Hold
    badge streamed over WebSocket every ~15s, shown in premium signal-tinted
    cards. Swipe a row to set a price-above/price-below or signal-change
-   alert (local notification, bell icon shows when one is active).
+   alert (local notification, bell icon shows when one is active). Alerts are
+   checked live while the app is open, and periodically in the background
+   (iOS Background App Refresh) so they still fire when the app is closed -
+   see [Background alerts](#background-alerts) below.
 3. **Portfolio** - mark a stock as "I Bought This" (entry price + quantity)
    from its detail screen, then track live current price, unrealized P/L, and
    same-day sell alerts here, with local notifications when it's time to
@@ -119,3 +125,23 @@ backend, use HTTPS.
    Finance.
 8. **Settings** - configure and test the backend connection, plus broker
    credentials (Alpaca paper/live, Questrade).
+
+## Background alerts
+
+Watchlist price/signal alerts and position sell-alerts use **local
+notifications**, checked two ways:
+
+- **Live**: while the app is open, the WebSocket stream checks every update
+  (~every 15s).
+- **Background**: a `BGAppRefreshTask` periodically wakes the app to re-check
+  alerts against the backend and post notifications, even when the app is
+  closed.
+
+This is *not* the same as push notifications (APNs) - iOS schedules
+background refresh opportunistically based on usage, battery, and network
+conditions, typically every 15 minutes to a few hours, so it's best-effort
+rather than real-time. True push notifications would require a paid Apple
+Developer account (for an APNs key) plus a server-side scheduler, which this
+project doesn't include. For best results, make sure **Background App
+Refresh** is enabled for Stock Chance in iOS Settings > General > Background
+App Refresh.

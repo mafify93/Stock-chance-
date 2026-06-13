@@ -176,6 +176,10 @@ struct WatchlistAlert: Codable, Hashable {
     var priceAbove: Double?
     var priceBelow: Double?
     var notifyOnSignalChange: Bool = false
+    /// The signal action last observed for this symbol, used to detect a
+    /// change since persisted state survives app relaunches and background
+    /// refreshes.
+    var lastSignalAction: TradeAction?
 
     var isActive: Bool {
         priceAbove != nil || priceBelow != nil || notifyOnSignalChange

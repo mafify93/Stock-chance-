@@ -203,7 +203,7 @@ private struct WatchlistAlertSheet: View {
                     }
                     Toggle("Notify on signal change", isOn: $notifyOnSignalChange)
                 } footer: {
-                    Text("We'll send a local notification when \(symbol) crosses a price threshold or its Buy/Sell signal changes. Leave price fields blank to disable.")
+                    Text("We'll send a local notification when \(symbol) crosses a price threshold or its Buy/Sell signal changes. Leave price fields blank to disable. Checked live while the app is open, and periodically in the background - enable Background App Refresh for Stock Chance in iOS Settings for the best results.")
                 }
 
                 if alertStore.alert(for: symbol)?.isActive == true {

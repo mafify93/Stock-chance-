@@ -1,6 +1,10 @@
 import SwiftUI
 
 struct ContentView: View {
+    #if os(iOS)
+    @Environment(\.scenePhase) private var scenePhase
+    #endif
+
     var body: some View {
         TabView {
             TodayView()
@@ -22,5 +26,12 @@ struct ContentView: View {
                 .tabItem { Label("Settings", systemImage: "gear") }
         }
         .tint(Theme.gold)
+        #if os(iOS)
+        .onChange(of: scenePhase) { newPhase in
+            if newPhase == .background {
+                BackgroundRefreshManager.shared.schedule()
+            }
+        }
+        #endif
     }
 }

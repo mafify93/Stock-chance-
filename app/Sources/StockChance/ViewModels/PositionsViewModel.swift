@@ -50,20 +50,7 @@ final class PositionsViewModel: ObservableObject {
 
     @MainActor
     private func notifyIfNeeded(symbol: String, signal: DaySignalResponse) {
-        let price = signal.price.formatted(.currency(code: "USD"))
-        if let alert = signal.alert {
-            NotificationManager.shared.notify(
-                key: "\(symbol)-\(alert.rawValue)",
-                title: "\(symbol): \(alert.label)",
-                body: "Now trading at \(price)."
-            )
-        } else if signal.action == .daySell {
-            NotificationManager.shared.notify(
-                key: "\(symbol)-SELL_NOW",
-                title: "\(symbol): Sell Now signal",
-                body: "The same-day signal flipped to Sell Now at \(price)."
-            )
-        }
+        PositionAlertChecker.check(symbol: symbol, signal: signal)
     }
 
     func stop() {
