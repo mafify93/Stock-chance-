@@ -218,9 +218,37 @@ and produce a short "what to consider buying tomorrow" shortlist:
 
 ## Deploying
 
-For the iOS/macOS app to reach this API from a real device, deploy it
-somewhere reachable (Fly.io, Render, Railway, a VPS, etc.) and point the app
-at that URL in Settings. A simple production start command:
+For the iOS/macOS app to reach this API from a real device (especially away
+from your home network), deploy it somewhere reachable and point the app at
+that URL in Settings.
+
+### Render (free tier)
+
+A `render.yaml` at the repo root configures a "Blueprint" deploy:
+
+1. Push this repo to GitHub (already done if you're reading this from there).
+2. On [render.com](https://render.com), click **New +** -> **Blueprint**,
+   connect this repo/branch. Render reads `render.yaml` and pre-fills a free
+   web service (`backend/` as the root, correct build/start commands).
+3. When prompted for `ANTHROPIC_API_KEY`, paste your key (from
+   [console.anthropic.com](https://console.anthropic.com)) - this enables the
+   AI Insight, AI Auto-Trader's combined signal, and Tonight's Picks.
+4. Deploy. You'll get a URL like `https://stock-chance-api.onrender.com`.
+
+**Free-tier caveats:**
+- The free instance **spins down after 15 minutes of inactivity** and takes
+  ~30-60s to wake up on the next request. To keep Tonight's Picks running on
+  schedule every evening, use a free uptime pinger (e.g.
+  [cron-job.org](https://cron-job.org) or UptimeRobot) to hit `GET /health`
+  every ~10 minutes, keeping the instance awake.
+- The free instance's disk is **ephemeral** - files under `backend/data/`
+  (AI Auto-Trader config/log, Tonight's Picks results) can be reset if Render
+  restarts the instance. With a keep-awake pinger this is uncommon, but if
+  your Auto-Trader settings ever disappear, just re-save them in Settings.
+
+### Other options
+
+A simple production start command (Fly.io, Railway, a VPS, etc.):
 
 ```bash
 uvicorn app.main:app --host 0.0.0.0 --port 8000
