@@ -26,6 +26,10 @@ struct ContentView: View {
                 .tabItem { Label("Settings", systemImage: "gear") }
         }
         .tint(Theme.gold)
+        // Pin a light appearance so system controls (Form section headers,
+        // pickers, the tab bar) always match the light theme, regardless of
+        // the device's system-wide Dark Mode setting.
+        .preferredColorScheme(.light)
         .task {
             NotificationManager.shared.requestAuthorization()
         }

@@ -19,8 +19,19 @@ final class AutoTraderViewModel: ObservableObject {
         do {
             status = try await client.autoTraderStatus()
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = Self.friendlyMessage(for: error)
         }
+    }
+
+    /// Turns raw API errors into something readable. A 404 here almost always
+    /// means the connected backend is an older build without the AI
+    /// auto-trader endpoints, so we say so explicitly.
+    static func friendlyMessage(for error: Error) -> String {
+        let raw = error.localizedDescription
+        if raw.localizedCaseInsensitiveContains("not found") || raw.contains("404") {
+            return "This backend doesn't have the AI Auto-Trader yet. Update the backend to the latest version and restart it, then try again."
+        }
+        return raw
     }
 
     /// Saves the new configuration and refreshes status. Returns an error
@@ -34,7 +45,7 @@ final class AutoTraderViewModel: ObservableObject {
             await load(baseURL: baseURL)
             return nil
         } catch {
-            return error.localizedDescription
+            return Self.friendlyMessage(for: error)
         }
     }
 
@@ -46,7 +57,7 @@ final class AutoTraderViewModel: ObservableObject {
         do {
             status = try await client.runAutoTraderNow()
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = Self.friendlyMessage(for: error)
         }
     }
 }

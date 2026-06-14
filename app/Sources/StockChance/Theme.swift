@@ -1,32 +1,31 @@
 import SwiftUI
 
-/// A dark, "private trading terminal" visual theme: warm espresso-charcoal
-/// backgrounds, muted amber-gold accents, and refined typography - tuned for
-/// comfortable extended viewing (lower blue light, softer contrast) without
-/// losing the premium feel. Applied consistently across the app via the
-/// helpers below.
+/// A light, warm "clean trading desk" visual theme: soft cream-ivory
+/// backgrounds, rich bronze-gold accents, and high-contrast text - tuned for
+/// comfortable, easy-on-the-eye reading in daylight while keeping the premium
+/// feel. Applied consistently across the app via the helpers below.
 enum Theme {
     // MARK: - Palette
 
-    static let background = Color(red: 0.071, green: 0.063, blue: 0.059)       // warm espresso charcoal
-    static let backgroundElevated = Color(red: 0.098, green: 0.087, blue: 0.078)
-    static let card = Color(red: 0.122, green: 0.110, blue: 0.098)
-    static let cardBorder = Color(red: 0.231, green: 0.196, blue: 0.149)
+    static let background = Color(red: 0.968, green: 0.953, blue: 0.929)       // warm cream
+    static let backgroundElevated = Color(red: 1.0, green: 1.0, blue: 1.0)
+    static let card = Color(red: 1.0, green: 1.0, blue: 1.0)                   // white cards
+    static let cardBorder = Color(red: 0.882, green: 0.855, blue: 0.812)       // soft warm gray
 
-    static let gold = Color(red: 0.776, green: 0.655, blue: 0.388)             // muted amber gold
-    static let goldBright = Color(red: 0.898, green: 0.792, blue: 0.557)
+    static let gold = Color(red: 0.604, green: 0.482, blue: 0.176)             // rich bronze-gold
+    static let goldBright = Color(red: 0.761, green: 0.604, blue: 0.275)
 
-    static let profit = Color(red: 0.345, green: 0.733, blue: 0.557)           // softened emerald
-    static let loss = Color(red: 0.851, green: 0.392, blue: 0.380)             // softened crimson
-    static let neutral = Color(red: 0.580, green: 0.565, blue: 0.541)
+    static let profit = Color(red: 0.106, green: 0.541, blue: 0.353)           // deep emerald
+    static let loss = Color(red: 0.753, green: 0.227, blue: 0.169)             // deep crimson
+    static let neutral = Color(red: 0.541, green: 0.518, blue: 0.482)
 
-    static let textPrimary = Color(red: 0.925, green: 0.910, blue: 0.886)      // warm ivory
-    static let textSecondary = Color(red: 0.643, green: 0.612, blue: 0.580)
+    static let textPrimary = Color(red: 0.110, green: 0.102, blue: 0.090)      // warm near-black
+    static let textSecondary = Color(red: 0.361, green: 0.337, blue: 0.302)    // medium warm gray
 
     static let backgroundGradient = LinearGradient(
         colors: [
-            Color(red: 0.082, green: 0.071, blue: 0.063),
-            Color(red: 0.039, green: 0.035, blue: 0.031),
+            Color(red: 0.984, green: 0.973, blue: 0.953),
+            Color(red: 0.941, green: 0.922, blue: 0.890),
         ],
         startPoint: .top,
         endPoint: .bottom
@@ -63,7 +62,7 @@ private struct LuxuryCardModifier: ViewModifier {
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .strokeBorder(Theme.cardBorder.opacity(0.6), lineWidth: 1)
             )
-            .shadow(color: .black.opacity(0.35), radius: 12, x: 0, y: 6)
+            .shadow(color: .black.opacity(0.07), radius: 10, x: 0, y: 4)
     }
 }
 
@@ -94,7 +93,7 @@ private struct HeroGlassCardModifier: ViewModifier {
                 RoundedRectangle(cornerRadius: 28, style: .continuous)
                     .strokeBorder(tint.opacity(0.55), lineWidth: 1.5)
             )
-            .shadow(color: tint.opacity(0.25), radius: 24, x: 0, y: 12)
+            .shadow(color: tint.opacity(0.18), radius: 20, x: 0, y: 10)
     }
 }
 
@@ -158,7 +157,7 @@ struct LuxuryButtonStyle: ButtonStyle {
             .background(
                 Capsule().fill(prominent ? AnyShapeStyle(Theme.goldGradient) : AnyShapeStyle(Theme.backgroundElevated))
             )
-            .foregroundStyle(prominent ? Color.black : Theme.gold)
+            .foregroundStyle(prominent ? Color.white : Theme.gold)
             .overlay(
                 Capsule().strokeBorder(Theme.gold.opacity(prominent ? 0 : 0.5), lineWidth: 1)
             )
