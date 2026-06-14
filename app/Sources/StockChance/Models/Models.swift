@@ -238,6 +238,43 @@ struct AutoTraderStatus: Codable, Hashable {
     var disclaimer: String
 }
 
+// MARK: - Tonight's Picks (nightly AI deep-research scan)
+
+/// A single "Tonight's Picks" recommendation: a symbol, an action (BUY or
+/// WATCH), the AI's confidence, the news catalyst it found, and a short plan
+/// for the next session.
+struct NightPick: Codable, Identifiable, Hashable {
+    var symbol: String
+    var action: String // "BUY" | "WATCH"
+    var confidence: Double
+    var catalyst: String
+    var plan: String
+
+    var id: String { symbol }
+}
+
+/// The latest completed nightly deep-research scan.
+struct NightScanResult: Codable, Hashable {
+    var generatedAt: String
+    var summary: String
+    var picks: [NightPick]
+    var model: String
+    var disclaimer: String
+
+    var date: Date {
+        ISO8601DateFormatter.flexible.date(from: generatedAt) ?? Date()
+    }
+}
+
+/// Whether the nightly scan is configured, when it last/next runs, and its
+/// latest result (if any).
+struct NightScanStatus: Codable, Hashable {
+    var configured: Bool
+    var lastRunAt: String?
+    var nextRunAt: String?
+    var result: NightScanResult?
+}
+
 // MARK: - Backtest
 
 struct BacktestTrade: Codable, Identifiable, Hashable {

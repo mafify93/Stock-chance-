@@ -121,4 +121,12 @@ enum TradingGlossary {
         + "(if enabled) a plain-English take from an AI analyst, into one suggested action. It learns from past "
         + "trends, which don't always repeat - it's a tool to inform your decision, not a guarantee."
     )
+
+    static let tonightsPicks = (
+        "Tonight's Picks",
+        "Every evening, an AI researches recent news - earnings, partnerships, FDA decisions, analyst calls and "
+        + "more - across a curated list of stocks, looking for catalysts that could move a stock at the next "
+        + "open. \"BUY\" means a recent bullish catalyst; \"WATCH\" means notable news that's less clear-cut. "
+        + "This is speculative research, not a guarantee - always do your own research."
+    )
 }

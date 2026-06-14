@@ -49,3 +49,26 @@ EXTENDED_MOVERS_UNIVERSE: list[str] = DAYTRADE_UNIVERSE + [
     "FUBO", "CLSK", "RIOT", "HUT", "BBAI", "SIRI", "PLUG", "DKNG",
     "AFRM", "UPST",
 ]
+
+# Curated for "Tonight's Picks" (see `app.night_scan`): liquid, heavily-covered
+# US-listed stocks/ETFs that regularly have concrete, news-driven catalysts -
+# earnings, product launches, partnerships/collaborations, FDA/regulatory
+# decisions, analyst calls, and macro events - that can move a stock at the
+# next day's open. Deliberately not the same as a user's personal watchlist:
+# this is the pool the nightly AI research scan searches for catalysts in.
+NIGHT_SCAN_UNIVERSE: list[str] = [
+    # Mega-cap tech / AI - frequent product, earnings, and partnership news
+    "AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA", "AMD", "AVGO", "PLTR",
+    # High-momentum / AI-adjacent - prone to sharp news-driven moves
+    "SMCI", "MSTR", "COIN", "MARA", "RIOT", "SOFI", "RIVN", "LCID", "ARM", "IONQ",
+    # Biotech / pharma - FDA decisions, trial readouts
+    "MRNA", "PFE", "LLY", "NVO", "AMGN",
+    # Consumer / retail - earnings, guidance, product launches
+    "NFLX", "DIS", "NKE", "SBUX", "COST", "WMT",
+    # Finance - earnings, rate-sensitive news
+    "JPM", "GS", "V",
+    # Energy - macro/OPEC/earnings driven
+    "XOM", "CVX",
+    # Broad-market ETFs for macro context
+    "SPY", "QQQ",
+]

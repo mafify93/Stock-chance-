@@ -5,7 +5,8 @@ __pycache__/
 venv/
 .pytest_cache/
 
-# AI Auto-Trader: persisted config (incl. Alpaca API keys) and decision log
+# AI Auto-Trader (config incl. Alpaca API keys, decision log) and Tonight's
+# Picks (nightly scan results)
 backend/data/
 
 # Xcode / XcodeGen

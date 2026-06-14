@@ -41,7 +41,7 @@ app/
     ViewModels/                # @Observable view models
     Views/
       ContentView.swift         # Root TabView (Today / Watchlist / Portfolio / Screener / Search / Settings)
-      TodayView.swift           # Morning watchlist: market session + Buy at Open / Watch / Avoid
+      TodayView.swift           # Morning watchlist: market session + Tonight's Picks + Buy at Open / Watch / Avoid
       WatchlistView.swift       # Premium live watchlist with signal badges and price/signal alerts
       PortfolioView.swift       # "I bought this" positions + connected broker account balances + journal link
       JournalView.swift         # Trade journal: logged orders, realized P/L, win rate
@@ -94,9 +94,12 @@ backend, use HTTPS.
 ## Features
 
 1. **Today** - the morning watchlist: current market session (pre-market /
-   open / after-hours / closed, with a countdown), plus Buy at Open / Watch
-   for a Dip / Avoid Today candidates with a plain-English plan and suspected
-   profit estimate for each.
+   open / after-hours / closed, with a countdown), a **Tonight's Picks** card
+   showing the AI's overnight deep-research shortlist of what to consider
+   buying at the next open (with the news catalyst and a plan for each pick -
+   see [AI features](#ai-features) below), plus Buy at Open / Watch for a Dip
+   / Avoid Today candidates with a plain-English plan and suspected profit
+   estimate for each.
 2. **Watchlist** - add any symbol via search; live price + Buy/Sell/Hold
    badge streamed over WebSocket every ~15s, shown in premium signal-tinted
    cards. Swipe a row to set a price-above/price-below or signal-change
@@ -137,25 +140,40 @@ backend, use HTTPS.
    "Confirm Real-Money Trading" toggle, each with its own warning. Shows a log
    of recent decisions (including HOLDs and skipped trades with the reason
    why).
-10. **Settings** - configure and test the backend connection, broker
+10. **Tonight's Picks** (top of Today) - every evening, the backend has Claude
+    do live web research across a curated, catalyst-prone universe of ~35
+    liquid US stocks/ETFs (not your personal watchlist) for recent news -
+    earnings, product launches, partnerships, FDA decisions, analyst calls,
+    macro events - and produces a short shortlist of what to consider buying
+    at the next open, each with the catalyst it found and a plain-English
+    plan. Runs automatically (no setup needed beyond the backend's
+    `ANTHROPIC_API_KEY`); hidden if that key isn't configured.
+11. **Settings** - configure and test the backend connection, broker
     credentials (Alpaca paper/live, Questrade), AI Auto-Trader, and
     check/enable notification permissions.
 
 ## AI features
 
-The AI Insight card and AI Auto-Trader are powered by the backend's
-`/api/ai/*` endpoints - see the
+The AI Insight card, AI Auto-Trader, and Tonight's Picks are powered by the
+backend's `/api/ai/*` endpoints - see the
 [backend README](../backend#ai-analysis) for how the ML model is trained, how
-the optional AI analyst (`ANTHROPIC_API_KEY`) works, and the auto-trader's
-safety model (disabled by default, paper-trading by default, real-money
-trading requires explicit confirmation, daily trade caps, position-size
-caps, market-hours-only).
+the optional AI analyst (`ANTHROPIC_API_KEY`) works, the auto-trader's safety
+model (disabled by default, paper-trading by default, real-money trading
+requires explicit confirmation, daily trade caps, position-size caps,
+market-hours-only), and how the
+[nightly Tonight's Picks scan](../backend#tonights-picks-nightly-deep-research-scan)
+works.
 
 ⚠️ **The AI Auto-Trader can place real orders with real money in your Alpaca
 account when configured to do so.** It is automated technical analysis +
 machine learning, not financial advice, and is not guaranteed to be
 profitable - you could lose money. You are solely responsible for any trades
 it places, and can disable it at any time from Settings.
+
+⚠️ **Tonight's Picks is speculative, AI-generated research, not financial
+advice.** Recent news and "catalysts" do not guarantee a stock will move in
+the expected direction at the next open - always do your own research before
+acting on a pick.
 
 ## Background alerts
 

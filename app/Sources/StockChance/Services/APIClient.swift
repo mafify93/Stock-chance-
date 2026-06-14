@@ -229,6 +229,16 @@ struct APIClient {
     func runAutoTraderNow() async throws -> AutoTraderStatus {
         try await post("/api/ai/auto-trader/run-now", body: EmptyBody())
     }
+
+    // MARK: - Tonight's Picks
+
+    func nightScanStatus() async throws -> NightScanStatus {
+        try await get("/api/ai/night-scan/status")
+    }
+
+    func runNightScanNow() async throws -> NightScanStatus {
+        try await post("/api/ai/night-scan/run-now", body: EmptyBody())
+    }
 }
 
 /// Empty JSON body (`{}`) for POST endpoints that take no request payload.

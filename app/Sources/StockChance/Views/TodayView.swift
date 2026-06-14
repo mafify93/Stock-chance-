@@ -4,7 +4,9 @@ import SwiftUI
 /// same-day Buy at Open / Watch for Dip / Avoid candidates with suspected
 /// profit targets and a plain-language plan for each.
 struct TodayView: View {
+    @EnvironmentObject private var apiConfig: APIConfig
     @StateObject private var viewModel = TodayViewModel()
+    @StateObject private var nightScanViewModel = NightScanViewModel()
 
     var body: some View {
         NavigationStack {
@@ -26,6 +28,9 @@ struct TodayView: View {
                         await viewModel.refresh()
                     }
                 }
+                .task {
+                    await nightScanViewModel.load(baseURL: apiConfig.baseURL)
+                }
         }
     }
 
@@ -40,6 +45,8 @@ struct TodayView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     MarketSessionBanner(session: scan.session)
+
+                    tonightsPicksSection
 
                     if let topPick = viewModel.topPicks.first {
                         NavigationLink(value: topPick.symbol) {
@@ -121,6 +128,57 @@ struct TodayView: View {
                         }
                         .buttonStyle(.plain)
                     }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var tonightsPicksSection: some View {
+        if let status = nightScanViewModel.status, status.configured {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("TONIGHT'S PICKS")
+                        .luxuryEyebrow()
+                    InfoTooltip(title: TradingGlossary.tonightsPicks.0, text: TradingGlossary.tonightsPicks.1)
+                    Spacer()
+                    if let result = status.result {
+                        Text(result.date, format: .relative(presentation: .named))
+                            .font(.caption2)
+                            .foregroundStyle(Theme.textSecondary)
+                    }
+                }
+                Text("What to Consider for Tomorrow")
+                    .font(Theme.sectionTitleFont())
+                    .foregroundStyle(Theme.textPrimary)
+
+                if let result = status.result {
+                    Text(result.summary)
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.textSecondary)
+
+                    if result.picks.isEmpty {
+                        Text("No strong catalysts found in last night's scan.")
+                            .font(.subheadline)
+                            .foregroundStyle(Theme.textSecondary)
+                    } else {
+                        VStack(spacing: 10) {
+                            ForEach(result.picks) { pick in
+                                NavigationLink(value: pick.symbol) {
+                                    NightPickCard(pick: pick)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+
+                    Text(result.disclaimer)
+                        .font(.caption2)
+                        .foregroundStyle(Theme.textSecondary.opacity(0.8))
+                } else {
+                    Text("The AI researches the market automatically every evening (around 8 PM ET) - check back tonight for tomorrow's picks.")
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.textSecondary)
                 }
             }
         }
@@ -261,5 +319,48 @@ private struct MoverCard: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(Theme.cardBorder.opacity(0.5), lineWidth: 1)
         )
+    }
+}
+
+/// Card for a single "Tonight's Picks" recommendation: symbol, BUY/WATCH
+/// badge with confidence, the news catalyst found by the AI, and a short
+/// plan for the next session.
+private struct NightPickCard: View {
+    let pick: NightPick
+
+    private var isBuy: Bool { pick.action == "BUY" }
+    private var actionColor: Color { isBuy ? Theme.profit : Theme.gold }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
+                Text(pick.symbol)
+                    .font(Theme.priceFont(18))
+                    .foregroundStyle(Theme.textPrimary)
+
+                Spacer()
+
+                Text(isBuy ? "BUY" : "WATCH")
+                    .font(.caption.weight(.bold))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(actionColor.opacity(0.18))
+                    .foregroundStyle(actionColor)
+                    .clipShape(Capsule())
+
+                Text("\(Int(pick.confidence))%")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(Theme.textSecondary)
+            }
+
+            Text(pick.catalyst)
+                .font(.subheadline)
+                .foregroundStyle(Theme.textPrimary)
+
+            Text(pick.plan)
+                .font(.caption)
+                .foregroundStyle(Theme.textSecondary)
+        }
+        .luxuryCard()
     }
 }
