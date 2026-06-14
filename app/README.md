@@ -48,10 +48,11 @@ app/
       BacktestView.swift        # Walk-forward backtest of the signal engine vs buy-and-hold
       ScreenerView.swift        # "What to buy / what to sell" rankings
       SearchView.swift          # Search any symbol (Yahoo Finance universe)
-      StockDetailView.swift     # Daily + intraday charts, signal breakdown, levels, analyst outlook, "I Bought This"
+      StockDetailView.swift     # Daily + intraday charts, signal breakdown, levels, analyst outlook, AI Insight, "I Bought This"
       MarketSessionBanner.swift # Pre-market/open/after-hours/closed banner
       SignalBadge.swift          # Buy/Sell/Hold badges and alert banners
-      SettingsView.swift        # Backend URL + broker credentials configuration
+      AutoTraderView.swift      # AI Auto-Trader configuration, safety confirmations, and decision log
+      SettingsView.swift        # Backend URL + broker credentials + AI Auto-Trader configuration
     Resources/                  # Assets.xcassets, macOS entitlements
 ```
 
@@ -123,9 +124,38 @@ backend, use HTTPS.
    lines, and live alerts.
 7. **Search** - any stock/ETF/index/crypto/FX symbol available on Yahoo
    Finance.
-8. **Settings** - configure and test the backend connection, broker
-   credentials (Alpaca paper/live, Questrade), and check/enable notification
-   permissions.
+8. **AI Insight** (in Stock detail) - a combined recommendation from the
+   rule-based signal, a machine-learning model trained on years of price
+   history (probability the price is higher in 5 trading days), and -
+   optionally - an AI analyst's plain-English summary. Hidden automatically if
+   the backend has no trained model and no AI analyst configured.
+9. **AI Auto-Trader** (in Settings) - configure an autonomous trading loop
+   that uses the same combined AI recommendation to place orders through
+   Alpaca: pick symbols, a minimum confidence threshold, max position size,
+   daily trade cap, and check frequency. **Disabled by default.** Real-money
+   trading requires switching to the "Live" environment *and* a separate
+   "Confirm Real-Money Trading" toggle, each with its own warning. Shows a log
+   of recent decisions (including HOLDs and skipped trades with the reason
+   why).
+10. **Settings** - configure and test the backend connection, broker
+    credentials (Alpaca paper/live, Questrade), AI Auto-Trader, and
+    check/enable notification permissions.
+
+## AI features
+
+The AI Insight card and AI Auto-Trader are powered by the backend's
+`/api/ai/*` endpoints - see the
+[backend README](../backend#ai-analysis) for how the ML model is trained, how
+the optional AI analyst (`ANTHROPIC_API_KEY`) works, and the auto-trader's
+safety model (disabled by default, paper-trading by default, real-money
+trading requires explicit confirmation, daily trade caps, position-size
+caps, market-hours-only).
+
+⚠️ **The AI Auto-Trader can place real orders with real money in your Alpaca
+account when configured to do so.** It is automated technical analysis +
+machine learning, not financial advice, and is not guaranteed to be
+profitable - you could lose money. You are solely responsible for any trades
+it places, and can disable it at any time from Settings.
 
 ## Background alerts
 

@@ -35,6 +35,9 @@ struct StockDetailView: View {
                     }
                     if let signal = viewModel.signal {
                         signalCard(signal)
+                        if let analysis = viewModel.aiAnalysis {
+                            aiInsightCard(analysis)
+                        }
                         reasonsCard(signal)
                         levelsCard(signal)
                         if let analyst = signal.analyst {
@@ -295,6 +298,58 @@ struct StockDetailView: View {
                 .luxuryCard()
             }
         }
+    }
+
+    /// Combined AI take: the ML model's read on years of price history, plus
+    /// (if configured) an AI analyst's plain-English summary, rolled up into
+    /// one suggested action alongside the rule-based signal above.
+    private func aiInsightCard(_ analysis: AIAnalysisResponse) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("AI Insight")
+                    .font(Theme.sectionTitleFont())
+                    .foregroundStyle(Theme.textPrimary)
+                InfoTooltip(title: TradingGlossary.aiInsight.0, text: TradingGlossary.aiInsight.1)
+                Spacer()
+                SignalBadge(action: analysis.combinedAction, confidence: analysis.combinedConfidence)
+            }
+
+            if let ml = analysis.ml {
+                Divider().overlay(Theme.cardBorder)
+                HStack {
+                    Text("ML Model")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.textPrimary)
+                    Spacer()
+                    SignalBadge(action: ml.action, confidence: ml.confidence)
+                }
+                Text("\(Int(ml.probabilityUp * 100))% probability the price is higher in \(ml.horizonDays) trading days, based on historical patterns.")
+                    .font(.caption)
+                    .foregroundStyle(Theme.textSecondary)
+            }
+
+            if let llm = analysis.llm {
+                Divider().overlay(Theme.cardBorder)
+                HStack {
+                    Text("AI Analyst")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.textPrimary)
+                    Spacer()
+                    SignalBadge(action: llm.action, confidence: llm.confidence)
+                }
+                Text(llm.summary)
+                    .font(.caption)
+                    .foregroundStyle(Theme.textSecondary)
+            } else if !analysis.llmConfigured {
+                Divider().overlay(Theme.cardBorder)
+                Text("AI analyst summaries are off. Set ANTHROPIC_API_KEY on the backend to enable them.")
+                    .font(.caption2)
+                    .foregroundStyle(Theme.textSecondary.opacity(0.8))
+            }
+
+            disclaimer(analysis.disclaimer)
+        }
+        .luxuryCard()
     }
 
     private func analystCard(_ analyst: AnalystOutlook) -> some View {

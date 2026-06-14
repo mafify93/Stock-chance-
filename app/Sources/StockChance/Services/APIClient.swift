@@ -207,7 +207,32 @@ struct APIClient {
     func placeQuestradeOrder(_ order: QuestradeOrderRequest, credentials: QuestradeCredentials) async throws -> QuestradeOrder {
         try await post("/api/broker/questrade/order", body: order, headers: credentials.headers)
     }
+
+    // MARK: - AI analysis & Auto-Trader
+
+    func aiAnalysis(_ symbol: String) async throws -> AIAnalysisResponse {
+        try await get("/api/ai/analysis/\(symbol)")
+    }
+
+    func autoTraderConfig() async throws -> AutoTraderConfig {
+        try await get("/api/ai/auto-trader/config")
+    }
+
+    func updateAutoTraderConfig(_ config: AutoTraderConfigRequest) async throws -> AutoTraderConfig {
+        try await post("/api/ai/auto-trader/config", body: config)
+    }
+
+    func autoTraderStatus() async throws -> AutoTraderStatus {
+        try await get("/api/ai/auto-trader/status")
+    }
+
+    func runAutoTraderNow() async throws -> AutoTraderStatus {
+        try await post("/api/ai/auto-trader/run-now", body: EmptyBody())
+    }
 }
+
+/// Empty JSON body (`{}`) for POST endpoints that take no request payload.
+struct EmptyBody: Encodable {}
 
 /// Alpaca API credentials, kept in the Keychain and sent per-request - the
 /// backend never stores them. `environment` selects between Alpaca's

@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 
 from .. import models
+from ..ml.model import ml_predictor
 from ..providers import yahoo
 from ..signals import analyze
 
@@ -36,6 +37,8 @@ async def signal(symbol: str, include_analyst: bool = Query(True, description="I
         except Exception:  # noqa: BLE001
             analyst = None
 
+    ml_result = await run_in_threadpool(ml_predictor.predict, df)
+
     return models.SignalResponse(
         symbol=result.symbol,
         action=result.action,
@@ -46,4 +49,5 @@ async def signal(symbol: str, include_analyst: bool = Query(True, description="I
         indicators=result.indicators,
         levels=result.levels,
         analyst=analyst,
+        ml=models.MLPrediction(**ml_result) if ml_result else None,
     )

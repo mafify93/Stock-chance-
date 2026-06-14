@@ -6,3 +6,5 @@ numpy==2.4.6
 pydantic==2.13.4
 httpx==0.28.1
 python-dotenv==1.0.1
+scikit-learn==1.7.2
+joblib==1.4.2

@@ -48,6 +48,15 @@ class AnalystOutlook(BaseModel):
     recommendations_summary: dict | None = None
 
 
+class MLPrediction(BaseModel):
+    probability_up: float
+    score: float
+    action: str
+    confidence: float
+    horizon_days: int
+    model_version: str | None = None
+
+
 class SignalResponse(BaseModel):
     symbol: str
     action: str
@@ -58,6 +67,7 @@ class SignalResponse(BaseModel):
     indicators: dict
     levels: dict
     analyst: AnalystOutlook | None = None
+    ml: MLPrediction | None = None
     disclaimer: str = (
         "Educational technical-analysis output, not financial advice. "
         "Past performance and indicator patterns do not guarantee future results."
@@ -347,3 +357,88 @@ class QuestradeOrder(BaseModel):
     type: str | None = None
     state: str | None = None
     avg_exec_price: float | None = None
+
+
+# --- AI analysis (rule-based signal + ML prediction + optional LLM take) -----
+
+
+class SignalSummary(BaseModel):
+    action: str
+    score: float
+    confidence: float
+    price: float
+    reasons: list[str]
+
+
+class LLMAnalysis(BaseModel):
+    action: str  # "BUY" | "SELL" | "HOLD"
+    confidence: float
+    summary: str
+    model: str
+
+
+class AIAnalysisResponse(BaseModel):
+    symbol: str
+    price: float
+    signal: SignalSummary
+    ml: MLPrediction | None = None
+    llm: LLMAnalysis | None = None
+    llm_configured: bool
+    combined_action: str  # "BUY" | "SELL" | "HOLD"
+    combined_confidence: float
+    disclaimer: str = (
+        "Combines a rule-based technical signal, a machine-learning direction "
+        "model, and (optionally) an LLM-generated summary into one view. None "
+        "of this is financial advice or a guarantee - markets are risky."
+    )
+
+
+# --- AI Auto-Trader (optional, places REAL orders when configured) -----------
+
+
+class AutoTraderConfigRequest(BaseModel):
+    enabled: bool = False
+    symbols: list[str] = []
+    min_confidence: float = 70.0
+    max_position_value: float = 100.0
+    max_daily_trades: int = 3
+    poll_interval_minutes: int = 15
+    environment: str = "paper"  # "paper" | "live"
+    confirmed_real_money: bool = False
+    alpaca_api_key_id: str | None = None
+    alpaca_api_secret_key: str | None = None
+
+
+class AutoTraderConfig(BaseModel):
+    enabled: bool
+    symbols: list[str]
+    min_confidence: float
+    max_position_value: float
+    max_daily_trades: int
+    poll_interval_minutes: int
+    environment: str
+    confirmed_real_money: bool
+    alpaca_configured: bool
+
+
+class AutoTraderDecision(BaseModel):
+    timestamp: str
+    symbol: str
+    action: str  # "BUY" | "SELL" | "HOLD"
+    combined_confidence: float
+    executed: bool
+    reason: str
+    order_id: str | None = None
+
+
+class AutoTraderStatus(BaseModel):
+    config: AutoTraderConfig
+    last_run_at: str | None = None
+    trades_today: int
+    decisions: list[AutoTraderDecision]
+    disclaimer: str = (
+        "The AI Auto-Trader places REAL orders with REAL money when enabled "
+        "with a live, confirmed Alpaca account. It is automated technical "
+        "analysis, not financial advice, and can lose money. You are solely "
+        "responsible for any trades it places - disable it at any time."
+    )

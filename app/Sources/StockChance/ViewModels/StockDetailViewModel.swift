@@ -13,6 +13,8 @@ final class StockDetailViewModel: ObservableObject {
     @Published private(set) var intradayCandles: [Candle] = []
     @Published private(set) var dayErrorMessage: String?
 
+    @Published private(set) var aiAnalysis: AIAnalysisResponse?
+
     private let stream = WatchStreamService()
     private let dayStream = WatchStreamService()
     private var streamTask: Task<Void, Never>?
@@ -42,6 +44,20 @@ final class StockDetailViewModel: ObservableObject {
         isLoading = false
 
         await loadDayTrade()
+        await loadAIAnalysis()
+    }
+
+    /// Loads the combined ML + LLM AI analysis. Best-effort - if it fails
+    /// (e.g. no trained model or no `ANTHROPIC_API_KEY`), the rest of the
+    /// screen still works and this section is simply hidden.
+    @MainActor
+    func loadAIAnalysis() async {
+        let client = APIClient(baseURL: APIConfig.shared.baseURL)
+        do {
+            aiAnalysis = try await client.aiAnalysis(symbol)
+        } catch {
+            aiAnalysis = nil
+        }
     }
 
     /// Loads the same-day signal + intraday candles. Failures here (e.g.

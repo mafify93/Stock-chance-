@@ -132,6 +132,109 @@ struct SignalResponse: Codable, Hashable {
     var indicators: SignalIndicators
     var levels: SignalLevels
     var analyst: AnalystOutlook?
+    var ml: MLPrediction?
+    var disclaimer: String
+}
+
+// MARK: - AI analysis (ML model + optional LLM analyst)
+
+/// A machine-learning model's prediction of whether the price will be
+/// higher in `horizonDays` trading days, expressed as a -1..+1 score
+/// alongside the rule-based signal. `nil` on `SignalResponse`/
+/// `AIAnalysisResponse` if no trained model is available on the backend.
+struct MLPrediction: Codable, Hashable {
+    var probabilityUp: Double
+    var score: Double
+    var action: TradeAction
+    var confidence: Double
+    var horizonDays: Int
+    var modelVersion: String?
+}
+
+struct SignalSummary: Codable, Hashable {
+    var action: TradeAction
+    var score: Double
+    var confidence: Double
+    var price: Double
+    var reasons: [String]
+}
+
+/// A short plain-English take from an LLM, generated server-side if
+/// `ANTHROPIC_API_KEY` is configured on the backend.
+struct LLMAnalysis: Codable, Hashable {
+    var action: TradeAction // BUY | SELL | HOLD
+    var confidence: Double
+    var summary: String
+    var model: String
+}
+
+/// Combines the rule-based signal, ML prediction, and optional LLM take into
+/// one `combinedAction` / `combinedConfidence`.
+struct AIAnalysisResponse: Codable, Hashable {
+    var symbol: String
+    var price: Double
+    var signal: SignalSummary
+    var ml: MLPrediction?
+    var llm: LLMAnalysis?
+    var llmConfigured: Bool
+    var combinedAction: TradeAction // BUY | SELL | HOLD
+    var combinedConfidence: Double
+    var disclaimer: String
+}
+
+// MARK: - AI Auto-Trader
+
+/// Request body for updating the AI Auto-Trader configuration. Omit
+/// `alpacaApiKeyId`/`alpacaApiSecretKey` (leave `nil`) to keep previously
+/// saved credentials unchanged.
+struct AutoTraderConfigRequest: Encodable {
+    var enabled: Bool
+    var symbols: [String]
+    var minConfidence: Double
+    var maxPositionValue: Double
+    var maxDailyTrades: Int
+    var pollIntervalMinutes: Int
+    var environment: String // "paper" | "live"
+    var confirmedRealMoney: Bool
+    var alpacaApiKeyId: String?
+    var alpacaApiSecretKey: String?
+}
+
+struct AutoTraderConfig: Codable, Hashable {
+    var enabled: Bool
+    var symbols: [String]
+    var minConfidence: Double
+    var maxPositionValue: Double
+    var maxDailyTrades: Int
+    var pollIntervalMinutes: Int
+    var environment: String // "paper" | "live"
+    var confirmedRealMoney: Bool
+    var alpacaConfigured: Bool
+}
+
+/// One evaluation result from the auto-trader - a HOLD, a skipped trade with
+/// the reason why, or an executed order.
+struct AutoTraderDecision: Codable, Identifiable, Hashable {
+    var timestamp: String
+    var symbol: String
+    var action: String // "BUY" | "SELL" | "HOLD"
+    var combinedConfidence: Double
+    var executed: Bool
+    var reason: String
+    var orderId: String?
+
+    var id: String { "\(timestamp)-\(symbol)" }
+
+    var date: Date {
+        ISO8601DateFormatter.flexible.date(from: timestamp) ?? Date()
+    }
+}
+
+struct AutoTraderStatus: Codable, Hashable {
+    var config: AutoTraderConfig
+    var lastRunAt: String?
+    var tradesToday: Int
+    var decisions: [AutoTraderDecision]
     var disclaimer: String
 }
 

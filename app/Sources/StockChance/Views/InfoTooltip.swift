@@ -114,4 +114,11 @@ enum TradingGlossary {
         "Deciding how many shares to buy based on how much you're willing to lose on the trade, not just how "
         + "much you can afford to buy. This keeps any single loss small and survivable."
     )
+
+    static let aiInsight = (
+        "AI Insight",
+        "Combines the rule-based signal with a machine-learning model trained on years of price history, and "
+        + "(if enabled) a plain-English take from an AI analyst, into one suggested action. It learns from past "
+        + "trends, which don't always repeat - it's a tool to inform your decision, not a guarantee."
+    )
 }
