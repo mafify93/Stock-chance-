@@ -40,6 +40,9 @@ def test_default_config_is_disabled(engine):
     assert config.confirmed_real_money is False
     assert config.alpaca_configured is False
     assert config.questrade_configured is False
+    assert config.auto_select is False
+    assert config.auto_select_count == 5
+    assert config.max_open_positions == 5
 
 
 def test_update_config_persists_and_reloads(engine):
@@ -303,3 +306,64 @@ def test_run_once_respects_daily_trade_limit(engine, monkeypatch):
     entries = engine.run_once()
     assert entries[0]["executed"] is False
     assert "daily trade limit" in entries[0]["reason"]
+
+
+def test_run_once_respects_max_open_positions(engine, monkeypatch):
+    monkeypatch.setattr(auto_trader_module, "get_market_session", lambda: MarketSession(status="open", now_et="x"))
+    monkeypatch.setattr(auto_trader_module.yahoo, "get_history", lambda *a, **k: _trending_df())
+    monkeypatch.setattr(
+        auto_trader_module, "analyze",
+        lambda symbol, df: SignalResult(symbol=symbol, action="STRONG_BUY", score=0.9, confidence=95, price=100.0, reasons=["strong uptrend"]),
+    )
+    monkeypatch.setattr(auto_trader_module.ml_predictor, "predict", lambda df: None)
+    # Already holding two unrelated positions; cap is 2, so a new buy is blocked.
+    monkeypatch.setattr(
+        auto_trader_module.alpaca, "get_positions",
+        lambda *a, **k: [{"symbol": "MSFT", "qty": 1}, {"symbol": "NVDA", "qty": 1}],
+    )
+    monkeypatch.setattr(auto_trader_module.alpaca, "place_order", lambda *a, **k: {"id": "nope"})
+
+    engine.update_config(models.AutoTraderConfigRequest(
+        enabled=True, symbols=["AAPL"], min_confidence=50, max_position_value=1000,
+        max_open_positions=2, environment="paper",
+        alpaca_api_key_id="key", alpaca_api_secret_key="secret",
+    ))
+    entries = engine.run_once()
+    assert entries[0]["executed"] is False
+    assert "max open positions" in entries[0]["reason"]
+
+
+def test_run_once_auto_select_trades_top_candidates(engine, monkeypatch):
+    monkeypatch.setattr(auto_trader_module, "get_market_session", lambda: MarketSession(status="open", now_et="x"))
+    monkeypatch.setattr(auto_trader_module, "DEFAULT_UNIVERSE", ["AAA", "BBB", "CCC"])
+    monkeypatch.setattr(auto_trader_module.yahoo, "get_history", lambda *a, **k: _trending_df())
+
+    # AAA strongest, BBB next, CCC a HOLD that should never be traded.
+    scores = {"AAA": 0.95, "BBB": 0.80, "CCC": 0.0}
+    actions = {"AAA": "STRONG_BUY", "BBB": "BUY", "CCC": "HOLD"}
+    monkeypatch.setattr(
+        auto_trader_module, "analyze",
+        lambda symbol, df: SignalResult(
+            symbol=symbol, action=actions[symbol], score=scores[symbol],
+            confidence=95 if actions[symbol] != "HOLD" else 10, price=100.0, reasons=["x"],
+        ),
+    )
+    monkeypatch.setattr(auto_trader_module.ml_predictor, "predict", lambda df: None)
+    monkeypatch.setattr(auto_trader_module.alpaca, "get_positions", lambda *a, **k: [])
+
+    placed = []
+    monkeypatch.setattr(
+        auto_trader_module.alpaca, "place_order",
+        lambda api_key, api_secret, symbol, qty, side, base_url=None: placed.append((symbol, side)) or {"id": symbol},
+    )
+
+    engine.update_config(models.AutoTraderConfigRequest(
+        enabled=True, auto_select=True, auto_select_count=2, min_confidence=50,
+        max_position_value=1000, max_daily_trades=10, environment="paper",
+        alpaca_api_key_id="key", alpaca_api_secret_key="secret",
+    ))
+    entries = engine.run_once()
+
+    traded = [e["symbol"] for e in entries if e["executed"]]
+    assert traded == ["AAA", "BBB"]  # top 2 by score, CCC (HOLD) excluded
+    assert ("AAA", "buy") in placed and ("BBB", "buy") in placed

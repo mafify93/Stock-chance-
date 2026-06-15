@@ -21,9 +21,13 @@ async def update_config(config: models.AutoTraderConfigRequest):
     """Update the auto-trader configuration. Disabled by default - placing
     REAL orders also requires `confirmed_real_money: true` (for Alpaca, also
     `environment: "live"`; Questrade has no paper mode and always requires
-    it). Omit `alpaca_api_key_id` / `alpaca_api_secret_key` /
-    `questrade_refresh_token` / `questrade_account_number` to leave
-    previously-saved credentials unchanged."""
+    it). Set `auto_select: true` to let the engine pick its own candidates
+    each cycle (it screens a broad liquid universe and trades the top
+    `auto_select_count` highest-conviction ideas, ignoring `symbols`);
+    `max_open_positions` caps how many holdings it can run at once. Omit
+    `alpaca_api_key_id` / `alpaca_api_secret_key` / `questrade_refresh_token`
+    / `questrade_account_number` to leave previously-saved credentials
+    unchanged."""
     try:
         return auto_trader.update_config(config)
     except ValueError as exc:

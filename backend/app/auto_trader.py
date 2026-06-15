@@ -54,6 +54,7 @@ from .intraday import get_market_session
 from .ml.model import ml_predictor
 from .providers import alpaca, questrade, yahoo
 from .signals import analyze
+from .universe import DEFAULT_UNIVERSE
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,12 @@ _DEFAULT_CONFIG = {
     "enabled": False,
     "broker": "alpaca",
     "symbols": [],
+    # When True the engine ignores `symbols` and picks its own candidates each
+    # cycle by screening a broad liquid universe (see `_select_symbols`).
+    "auto_select": False,
+    "auto_select_count": 5,
+    # Risk control: never hold more than this many open positions at once.
+    "max_open_positions": 5,
     "min_confidence": 70.0,
     "max_position_value": 100.0,
     "max_daily_trades": 3,
@@ -185,6 +192,9 @@ class AutoTraderEngine:
                 enabled=c["enabled"],
                 broker=c.get("broker", "alpaca"),
                 symbols=list(c["symbols"]),
+                auto_select=c.get("auto_select", False),
+                auto_select_count=c.get("auto_select_count", 5),
+                max_open_positions=c.get("max_open_positions", 5),
                 min_confidence=c["min_confidence"],
                 max_position_value=c["max_position_value"],
                 max_daily_trades=c["max_daily_trades"],
@@ -204,6 +214,9 @@ class AutoTraderEngine:
             self._config["enabled"] = req.enabled
             self._config["broker"] = req.broker
             self._config["symbols"] = [s.upper() for s in req.symbols]
+            self._config["auto_select"] = req.auto_select
+            self._config["auto_select_count"] = max(1, min(20, req.auto_select_count))
+            self._config["max_open_positions"] = max(1, min(50, req.max_open_positions))
             self._config["min_confidence"] = max(0.0, min(100.0, req.min_confidence))
             self._config["max_position_value"] = max(0.0, req.max_position_value)
             self._config["max_daily_trades"] = max(0, req.max_daily_trades)
@@ -299,9 +312,6 @@ class AutoTraderEngine:
         with self._lock:
             config = dict(self._config)
 
-        if not config["symbols"]:
-            return []
-
         if get_market_session().status != "open":
             return []
 
@@ -314,6 +324,10 @@ class AutoTraderEngine:
             except (alpaca.AlpacaError, questrade.QuestradeError):
                 logger.exception("Could not fetch positions for auto-trader")
 
+        symbols = self._symbols_to_evaluate(config, positions_by_symbol)
+        if not symbols:
+            return []
+
         today = datetime.now(timezone.utc).date().isoformat()
         with self._lock:
             trades_today = sum(
@@ -321,13 +335,52 @@ class AutoTraderEngine:
             )
 
         entries = []
-        for symbol in config["symbols"]:
+        for symbol in symbols:
             decision = self._evaluate_symbol(symbol, config, positions_by_symbol, trades_today, session, session_error)
             if decision["executed"]:
                 trades_today += 1
             entries.append(self._record(decision))
 
         return entries
+
+    def _symbols_to_evaluate(self, config: dict, positions_by_symbol: dict[str, dict]) -> list[str]:
+        """The symbols to evaluate this cycle.
+
+        In manual mode this is just the user's configured list. In
+        auto-select mode the engine ignores that list and picks its own
+        candidates (see `_select_symbols`). Either way, any symbol the
+        account currently holds is always included so open positions can be
+        evaluated for an exit."""
+        if config.get("auto_select"):
+            return self._select_symbols(config, positions_by_symbol)
+        return list(config["symbols"])
+
+    def _select_symbols(self, config: dict, positions_by_symbol: dict[str, dict]) -> list[str]:
+        """Screen a broad liquid universe with the (cheap) rule-based signal
+        and return the highest-conviction BUY candidates, plus every symbol
+        currently held so it can be evaluated for an exit.
+
+        This is the cheap first pass: only the resulting shortlist gets the
+        full (heavier) combined ML + AI-analyst evaluation in
+        `_evaluate_symbol`, so we don't run the LLM across the whole universe
+        every cycle."""
+        held = list(positions_by_symbol.keys())
+        candidates: list[tuple[str, float]] = []
+        for sym in DEFAULT_UNIVERSE:
+            if sym in held:
+                continue
+            try:
+                df = yahoo.get_history(sym, "1y", "1d")
+                result = analyze(sym, df)
+            except Exception:  # noqa: BLE001 - skip any symbol that won't load
+                continue
+            if result.action in ("BUY", "STRONG_BUY"):
+                candidates.append((sym, result.score))
+
+        candidates.sort(key=lambda item: item[1], reverse=True)
+        top = [sym for sym, _ in candidates[: config.get("auto_select_count", 5)]]
+        # Held positions first so exits are always considered before new buys.
+        return held + top
 
     def _evaluate_symbol(
         self,
@@ -372,6 +425,9 @@ class AutoTraderEngine:
         if action == "BUY":
             if existing:
                 return _decision(symbol, action, confidence, False, "already holding a position - not adding to it")
+            max_open = config.get("max_open_positions", 0)
+            if max_open and len(positions_by_symbol) >= max_open:
+                return _decision(symbol, action, confidence, False, f"max open positions reached ({max_open})")
             qty = int(config["max_position_value"] // signal_result.price)
             if qty < 1:
                 return _decision(symbol, action, confidence, False, f"max position value ${config['max_position_value']:.2f} buys less than 1 share at ${signal_result.price:.2f}")
@@ -388,6 +444,12 @@ class AutoTraderEngine:
 
         try:
             order = session.place_order(symbol, qty, side)
+            # Keep the in-cycle position map in sync so the open-position cap
+            # and "already holding" checks stay accurate across this run.
+            if side == "buy":
+                positions_by_symbol[symbol] = {"symbol": symbol, "qty": qty}
+            else:
+                positions_by_symbol.pop(symbol, None)
             return _decision(symbol, action, confidence, True, f"placed {side} order for {qty} {symbol}", order_id=str(order.get("id", "")))
         except (alpaca.AlpacaError, questrade.QuestradeError) as exc:
             return _decision(symbol, action, confidence, False, f"order failed: {exc}")

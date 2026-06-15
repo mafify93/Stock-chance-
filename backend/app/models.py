@@ -400,6 +400,11 @@ class AutoTraderConfigRequest(BaseModel):
     enabled: bool = False
     broker: str = "alpaca"  # "alpaca" | "questrade"
     symbols: list[str] = []
+    # When True the engine ignores `symbols` and screens a broad liquid
+    # universe each cycle, trading only its highest-conviction candidates.
+    auto_select: bool = False
+    auto_select_count: int = 5
+    max_open_positions: int = 5
     min_confidence: float = 70.0
     max_position_value: float = 100.0
     max_daily_trades: int = 3
@@ -416,6 +421,9 @@ class AutoTraderConfig(BaseModel):
     enabled: bool
     broker: str
     symbols: list[str]
+    auto_select: bool
+    auto_select_count: int
+    max_open_positions: int
     min_confidence: float
     max_position_value: float
     max_daily_trades: int

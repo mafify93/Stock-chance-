@@ -135,13 +135,16 @@ backend, use HTTPS.
    the backend has no trained model and no AI analyst configured.
 9. **Auto Trade** (its own tab) - configure an autonomous trading loop that
    uses the same combined AI recommendation to place orders through either
-   Alpaca or Questrade: pick a broker, symbols, a minimum confidence
-   threshold, max position size, daily trade cap, and check frequency.
-   **Disabled by default.** Real-money trading requires a separate "Confirm
-   Real-Money Trading" toggle with its own warning - for Alpaca this also
-   requires switching to the "Live" environment, while Questrade (no
-   paper-trading mode) always requires it. Shows a log of recent decisions
-   (including HOLDs and skipped trades with the reason why).
+   Alpaca or Questrade: pick a broker, a minimum confidence threshold, max
+   position size, daily trade cap, max open positions, and check frequency.
+   Either give it a **fixed symbol list**, or flip on **"Let the AI pick
+   symbols"** so it screens a broad universe of liquid US stocks/ETFs every
+   cycle and trades only its highest-conviction ideas. **Disabled by
+   default.** Real-money trading requires a separate "Confirm Real-Money
+   Trading" toggle with its own warning - for Alpaca this also requires
+   switching to the "Live" environment, while Questrade (no paper-trading
+   mode) always requires it. Shows a log of recent decisions (including HOLDs
+   and skipped trades with the reason why).
 10. **Tonight's Picks** (top of Today) - every evening, the backend has Claude
     do live web research across a curated, catalyst-prone universe of ~35
     liquid US stocks/ETFs (not your personal watchlist) for recent news -

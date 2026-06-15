@@ -18,6 +18,9 @@ struct AutoTraderView: View {
     @State private var enabled = false
     @State private var broker = "alpaca" // "alpaca" | "questrade"
     @State private var symbolsText = ""
+    @State private var autoSelect = false
+    @State private var autoSelectCount = 5
+    @State private var maxOpenPositions = 5
     @State private var minConfidence: Double = 70
     @State private var maxPositionValueText = "100"
     @State private var maxDailyTrades = 3
@@ -122,15 +125,26 @@ struct AutoTraderView: View {
 
     private var symbolsSection: some View {
         Section {
-            TextField("AAPL, MSFT, TSLA", text: $symbolsText)
-                #if os(iOS)
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.characters)
-                #endif
+            Toggle("Let the AI pick symbols", isOn: $autoSelect)
+                .tint(Theme.gold)
+
+            if autoSelect {
+                Stepper("Trade top \(autoSelectCount) ideas", value: $autoSelectCount, in: 1...20)
+            } else {
+                TextField("AAPL, MSFT, TSLA", text: $symbolsText)
+                    #if os(iOS)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.characters)
+                    #endif
+            }
         } header: {
             Text("Symbols")
         } footer: {
-            Text("Comma-separated list of symbols for the auto-trader to watch and trade.")
+            if autoSelect {
+                Text("The AI scans a broad universe of liquid US stocks & ETFs every cycle and trades only its highest-conviction ideas - you don't pick the symbols. It still respects every limit below (confidence, position size, daily trade cap, and max open positions).")
+            } else {
+                Text("Comma-separated list of symbols for the auto-trader to watch and trade.")
+            }
         }
     }
 
@@ -153,11 +167,12 @@ struct AutoTraderView: View {
                     .multilineTextAlignment(.trailing)
             }
             Stepper("Max Trades / Day: \(maxDailyTrades)", value: $maxDailyTrades, in: 0...20)
+            Stepper("Max Open Positions: \(maxOpenPositions)", value: $maxOpenPositions, in: 1...50)
             Stepper("Check Every \(pollIntervalMinutes) min", value: $pollIntervalMinutes, in: 5...120, step: 5)
         } header: {
             Text("Strategy")
         } footer: {
-            Text("Only acts when the combined AI signal meets this confidence level. Max Position Value caps the dollar amount per buy order - the auto-trader never adds to an existing position.")
+            Text("Only acts when the combined AI signal meets this confidence level. Max Position Value caps the dollar amount per buy order; Max Open Positions caps how many holdings it can run at once (your total risk ≈ Max Position Value × Max Open Positions). The auto-trader never adds to an existing position.")
         }
     }
 
@@ -352,6 +367,9 @@ struct AutoTraderView: View {
         enabled = config.enabled
         broker = config.broker
         symbolsText = config.symbols.joined(separator: ", ")
+        autoSelect = config.autoSelect
+        autoSelectCount = config.autoSelectCount
+        maxOpenPositions = config.maxOpenPositions
         minConfidence = config.minConfidence
         maxPositionValueText = String(format: "%.2f", config.maxPositionValue)
         maxDailyTrades = config.maxDailyTrades
@@ -373,6 +391,9 @@ struct AutoTraderView: View {
             enabled: enabled,
             broker: broker,
             symbols: symbols,
+            autoSelect: autoSelect,
+            autoSelectCount: autoSelectCount,
+            maxOpenPositions: maxOpenPositions,
             minConfidence: minConfidence,
             maxPositionValue: Double(maxPositionValueText) ?? 100,
             maxDailyTrades: maxDailyTrades,

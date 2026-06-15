@@ -191,6 +191,10 @@ struct AutoTraderConfigRequest: Encodable {
     var enabled: Bool
     var broker: String = "alpaca" // "alpaca" | "questrade"
     var symbols: [String]
+    // When true the engine ignores `symbols` and picks its own candidates.
+    var autoSelect: Bool = false
+    var autoSelectCount: Int = 5
+    var maxOpenPositions: Int = 5
     var minConfidence: Double
     var maxPositionValue: Double
     var maxDailyTrades: Int
@@ -207,6 +211,9 @@ struct AutoTraderConfig: Codable, Hashable {
     var enabled: Bool
     var broker: String // "alpaca" | "questrade"
     var symbols: [String]
+    var autoSelect: Bool
+    var autoSelectCount: Int
+    var maxOpenPositions: Int
     var minConfidence: Double
     var maxPositionValue: Double
     var maxDailyTrades: Int
