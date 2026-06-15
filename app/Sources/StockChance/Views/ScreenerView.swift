@@ -44,20 +44,52 @@ struct ScreenerView: View {
     @ViewBuilder
     private var content: some View {
         if viewModel.isLoading && viewModel.response == nil {
-            ProgressView("Scanning the market...")
+            ProgressView("Scanning the market...\nThis can take up to a minute.")
+                .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let error = viewModel.errorMessage, viewModel.response == nil {
-            EmptyStateView("Couldn't load screener", systemImage: "exclamationmark.triangle", description: Text(error))
+            VStack(spacing: 16) {
+                EmptyStateView("Couldn't load screener", systemImage: "exclamationmark.triangle", description: Text(error))
+                Button("Try Again") {
+                    Task { await viewModel.refresh(watchlistSymbols: watchlist.symbols) }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Theme.gold)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let response = viewModel.response {
             List {
+                if response.buy.isEmpty && response.sell.isEmpty && response.hold.isEmpty {
+                    Section {
+                        Text("No results came back this time - the data provider may be busy. Pull down to refresh.")
+                            .font(.subheadline)
+                            .foregroundStyle(Theme.textSecondary)
+                            .listRowBackground(Color.clear)
+                    }
+                }
                 section(title: "Buy Candidates", items: response.buy, emptyText: "No strong buy signals right now.")
                 section(title: "Sell Candidates", items: response.sell, emptyText: "No strong sell signals right now.")
                 section(title: "Hold / Neutral", items: response.hold, emptyText: "Nothing neutral right now.")
             }
             .listStyle(.plain)
+            .refreshable { await viewModel.refresh(watchlistSymbols: watchlist.symbols) }
             .navigationDestination(for: String.self) { symbol in
                 StockDetailView(symbol: symbol)
             }
+        } else {
+            VStack(spacing: 16) {
+                EmptyStateView(
+                    "Ready to scan",
+                    systemImage: "chart.bar",
+                    description: Text("Tap below to rank stocks into Buy / Sell / Hold.")
+                )
+                Button("Scan Now") {
+                    Task { await viewModel.refresh(watchlistSymbols: watchlist.symbols) }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Theme.gold)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 

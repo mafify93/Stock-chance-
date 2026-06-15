@@ -40,6 +40,9 @@ struct APIClient {
         }
 
         var request = URLRequest(url: url)
+        // Generous timeout so a slow multi-symbol scan or a cold-starting
+        // free-tier host (which can take 30-60s to wake) doesn't fail.
+        request.timeoutInterval = 120
         for (key, value) in headers {
             request.setValue(value, forHTTPHeaderField: key)
         }
@@ -68,6 +71,9 @@ struct APIClient {
         let url = baseURL.appendingPathComponent(path)
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        // Generous timeout: a "Run Now" scan (auto-trader / night scan) or a
+        // cold-starting free-tier host can take a while to respond.
+        request.timeoutInterval = 120
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         for (key, value) in headers {
             request.setValue(value, forHTTPHeaderField: key)

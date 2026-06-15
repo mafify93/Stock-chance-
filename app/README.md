@@ -40,7 +40,7 @@ app/
       BackgroundRefreshManager.swift # iOS background refresh: checks alerts when the app isn't open
     ViewModels/                # @Observable view models
     Views/
-      ContentView.swift         # Root TabView (Today / Watchlist / Portfolio / Screener / Auto Trade / Settings)
+      ContentView.swift         # Root TabView (Today / Watchlist / Portfolio / Screener / Auto Trade); Settings opens as a sheet from a gear button on Today
       TodayView.swift           # Morning watchlist: market session + Tonight's Picks + Buy at Open / Watch / Avoid
       WatchlistView.swift       # Premium live watchlist with signal badges and price/signal alerts
       PortfolioView.swift       # "I bought this" positions + connected broker account balances + journal link
@@ -148,9 +148,9 @@ backend, use HTTPS.
     at the next open, each with the catalyst it found and a plain-English
     plan. Runs automatically (no setup needed beyond the backend's
     `ANTHROPIC_API_KEY`); hidden if that key isn't configured.
-11. **Settings** - configure and test the backend connection, broker
-    credentials (Alpaca paper/live, Questrade), and check/enable notification
-    permissions.
+11. **Settings** (gear button, top-left of Today) - configure and test the
+    backend connection, broker credentials (Alpaca paper/live, Questrade), and
+    check/enable notification permissions.
 
 ## AI features
 

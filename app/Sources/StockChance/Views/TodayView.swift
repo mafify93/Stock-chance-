@@ -5,8 +5,10 @@ import SwiftUI
 /// profit targets and a plain-language plan for each.
 struct TodayView: View {
     @EnvironmentObject private var apiConfig: APIConfig
+    @EnvironmentObject private var brokerStore: BrokerStore
     @StateObject private var viewModel = TodayViewModel()
     @StateObject private var nightScanViewModel = NightScanViewModel()
+    @State private var showSettings = false
 
     var body: some View {
         NavigationStack {
@@ -22,6 +24,18 @@ struct TodayView: View {
                         }
                         .disabled(viewModel.isLoading)
                     }
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button {
+                            showSettings = true
+                        } label: {
+                            Label("Settings", systemImage: "gear")
+                        }
+                    }
+                }
+                .sheet(isPresented: $showSettings) {
+                    SettingsView()
+                        .environmentObject(apiConfig)
+                        .environmentObject(brokerStore)
                 }
                 .task {
                     if viewModel.scan == nil {

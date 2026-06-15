@@ -9,6 +9,7 @@ import AppKit
 struct SettingsView: View {
     @EnvironmentObject private var apiConfig: APIConfig
     @EnvironmentObject private var brokerStore: BrokerStore
+    @Environment(\.dismiss) private var dismiss
     @State private var urlText: String = ""
     @State private var statusMessage: String?
     @State private var isChecking = false
@@ -229,6 +230,11 @@ struct SettingsView: View {
             }
             .navigationTitle("Settings")
             .luxuryBackground()
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
             .onAppear {
                 urlText = apiConfig.baseURL.absoluteString
                 apiKeyIdText = brokerStore.apiKeyId

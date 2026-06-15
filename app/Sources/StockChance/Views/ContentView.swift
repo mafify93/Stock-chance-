@@ -21,9 +21,6 @@ struct ContentView: View {
 
             AutoTraderView()
                 .tabItem { Label("Auto Trade", systemImage: "bolt.fill") }
-
-            SettingsView()
-                .tabItem { Label("Settings", systemImage: "gear") }
         }
         .tint(Theme.gold)
         // Pin a light appearance so system controls (Form section headers,
