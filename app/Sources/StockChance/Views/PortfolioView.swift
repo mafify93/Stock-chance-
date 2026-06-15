@@ -92,6 +92,15 @@ struct PortfolioView: View {
                 viewModel.start(symbols: store.positions.map(\.symbol), baseURL: apiConfig.webSocketBaseURL)
                 await refreshBrokerAccounts()
             }
+            .task {
+                // Keep connected broker balances reasonably fresh while this
+                // tab is visible (position signals already stream live).
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(30))
+                    if Task.isCancelled { break }
+                    await refreshBrokerAccounts()
+                }
+            }
             .onChange(of: store.positions) { newValue in
                 viewModel.start(symbols: newValue.map(\.symbol), baseURL: apiConfig.webSocketBaseURL)
             }

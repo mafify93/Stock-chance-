@@ -15,15 +15,46 @@ from ..signals import analyze
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-POLL_INTERVAL_SECONDS = 15
-DAYTRADE_POLL_INTERVAL_SECONDS = 20
+POLL_INTERVAL_SECONDS = 10
+DAYTRADE_POLL_INTERVAL_SECONDS = 15
+
+
+async def _fetch_watch_payload(sym: str) -> dict:
+    try:
+        quote = await run_in_threadpool(yahoo.get_quote, sym)
+        df = await run_in_threadpool(yahoo.get_history, sym, "6mo", "1d")
+        result = await run_in_threadpool(analyze, sym, df)
+        return {
+            "symbol": sym,
+            "quote": quote,
+            "signal": {
+                "action": result.action,
+                "score": result.score,
+                "confidence": result.confidence,
+                "reasons": result.reasons,
+                "levels": result.levels,
+            },
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {"symbol": sym, "error": str(exc)}
+
+
+async def _fetch_daytrade_payload(sym: str) -> dict:
+    try:
+        df = await run_in_threadpool(yahoo.get_intraday_history, sym)
+        result = await run_in_threadpool(compute_day_signal, sym, df)
+        return {"symbol": sym, "signal": dataclasses.asdict(result)}
+    except Exception as exc:  # noqa: BLE001
+        return {"symbol": sym, "error": str(exc)}
 
 
 @router.websocket("/ws/watch")
 async def watch(websocket: WebSocket, symbols: str = Query(..., description="Comma-separated symbols, e.g. AAPL,MSFT")):
     """Stream live quote + buy/sell/hold signal updates for the given symbols.
 
-    Sends one JSON message per symbol every ~15 seconds:
+    Sends one JSON message per symbol every ~10 seconds. All symbols for a
+    cycle are fetched concurrently (rather than one-by-one) so a watchlist
+    with several symbols doesn't take proportionally longer to refresh:
         {"symbol": "AAPL", "quote": {...}, "signal": {...}}
     or, on a per-symbol error:
         {"symbol": "AAPL", "error": "..."}
@@ -36,25 +67,8 @@ async def watch(websocket: WebSocket, symbols: str = Query(..., description="Com
 
     try:
         while True:
-            for sym in symbol_list:
-                try:
-                    quote = await run_in_threadpool(yahoo.get_quote, sym)
-                    df = await run_in_threadpool(yahoo.get_history, sym, "6mo", "1d")
-                    result = await run_in_threadpool(analyze, sym, df)
-                    payload = {
-                        "symbol": sym,
-                        "quote": quote,
-                        "signal": {
-                            "action": result.action,
-                            "score": result.score,
-                            "confidence": result.confidence,
-                            "reasons": result.reasons,
-                            "levels": result.levels,
-                        },
-                    }
-                except Exception as exc:  # noqa: BLE001
-                    payload = {"symbol": sym, "error": str(exc)}
-
+            payloads = await asyncio.gather(*(_fetch_watch_payload(sym) for sym in symbol_list))
+            for payload in payloads:
                 await websocket.send_json(payload)
 
             await asyncio.sleep(POLL_INTERVAL_SECONDS)
@@ -66,7 +80,9 @@ async def watch(websocket: WebSocket, symbols: str = Query(..., description="Com
 async def daytrade_watch(websocket: WebSocket, symbols: str = Query(..., description="Comma-separated symbols, e.g. AAPL,MSFT")):
     """Stream live same-day Buy/Sell/Hold signals (with alerts) for the given symbols.
 
-    Sends one JSON message per symbol every ~20 seconds:
+    Sends one JSON message per symbol every ~15 seconds. All symbols for a
+    cycle are fetched concurrently (rather than one-by-one) so a portfolio
+    with several positions doesn't take proportionally longer to refresh:
         {"symbol": "AAPL", "signal": {...}}
     or, on a per-symbol error:
         {"symbol": "AAPL", "error": "..."}
@@ -83,14 +99,8 @@ async def daytrade_watch(websocket: WebSocket, symbols: str = Query(..., descrip
 
     try:
         while True:
-            for sym in symbol_list:
-                try:
-                    df = await run_in_threadpool(yahoo.get_intraday_history, sym)
-                    result = await run_in_threadpool(compute_day_signal, sym, df)
-                    payload = {"symbol": sym, "signal": dataclasses.asdict(result)}
-                except Exception as exc:  # noqa: BLE001
-                    payload = {"symbol": sym, "error": str(exc)}
-
+            payloads = await asyncio.gather(*(_fetch_daytrade_payload(sym) for sym in symbol_list))
+            for payload in payloads:
                 await websocket.send_json(payload)
 
             await asyncio.sleep(DAYTRADE_POLL_INTERVAL_SECONDS)

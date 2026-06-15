@@ -45,6 +45,15 @@ struct TodayView: View {
                 .task {
                     await nightScanViewModel.load(baseURL: apiConfig.baseURL)
                 }
+                .task {
+                    // Keep the morning scan reasonably fresh while this tab
+                    // is visible, without a disruptive full-screen reload.
+                    while !Task.isCancelled {
+                        try? await Task.sleep(for: .seconds(60))
+                        if Task.isCancelled { break }
+                        await viewModel.refresh()
+                    }
+                }
         }
     }
 
