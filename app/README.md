@@ -40,8 +40,8 @@ app/
       BackgroundRefreshManager.swift # iOS background refresh: checks alerts when the app isn't open
     ViewModels/                # @Observable view models
     Views/
-      ContentView.swift         # Root TabView (Today / Watchlist / Portfolio / Screener / Auto Trade); Settings opens as a sheet from a gear button on Today
-      TodayView.swift           # Morning watchlist: market session + Tonight's Picks + Buy at Open / Watch / Avoid
+      ContentView.swift         # Root TabView (Today / Watchlist / Portfolio / Screener / Auto Trade / Ask AI); Settings opens as a sheet from a gear button on Today
+      TodayView.swift           # Morning watchlist: market session + Daily AI Briefing + Tonight's Picks + Buy at Open / Watch / Avoid
       WatchlistView.swift       # Premium live watchlist with signal badges and price/signal alerts
       PortfolioView.swift       # "I bought this" positions + connected broker account balances + journal link
       JournalView.swift         # Trade journal: logged orders, realized P/L, win rate
@@ -53,6 +53,7 @@ app/
       MarketSessionBanner.swift # Pre-market/open/after-hours/closed banner
       SignalBadge.swift          # Buy/Sell/Hold badges and alert banners
       AutoTraderView.swift      # "Auto Trade" tab: AI Auto-Trader configuration, safety confirmations, and decision log
+      ChatView.swift             # "Ask AI" tab: chat grounded in your live positions, watchlist, signals, and auto-trader activity
       SettingsView.swift        # Backend URL, broker credentials, and notification permissions
     Resources/                  # Assets.xcassets, macOS entitlements
 ```
@@ -95,11 +96,13 @@ backend, use HTTPS.
 ## Features
 
 1. **Today** - the morning watchlist: current market session (pre-market /
-   open / after-hours / closed, with a countdown), a **Tonight's Picks** card
-   showing the AI's overnight deep-research shortlist of what to consider
-   buying at the next open (with the news catalyst and a plan for each pick -
-   see [AI features](#ai-features) below), plus Buy at Open / Watch for a Dip
-   / Avoid Today candidates with a plain-English plan and suspected profit
+   open / after-hours / closed, with a countdown), a **Daily AI Briefing**
+   card with a personalized summary of your holdings/watchlist (what moved
+   overnight and why, what to watch today - see [AI features](#ai-features)
+   below), a **Tonight's Picks** card showing the AI's overnight deep-research
+   shortlist of what to consider buying at the next open (with the news
+   catalyst and a plan for each pick), plus Buy at Open / Watch for a Dip /
+   Avoid Today candidates with a plain-English plan and suspected profit
    estimate for each.
 2. **Watchlist** - add any symbol via search; live price + Buy/Sell/Hold
    badge streamed over WebSocket every ~15s, shown in premium signal-tinted
@@ -156,18 +159,25 @@ backend, use HTTPS.
 11. **Settings** (gear button, top-left of Today) - configure and test the
     backend connection, broker credentials (Alpaca paper/live, Questrade), and
     check/enable notification permissions.
+12. **Ask AI** (its own tab) - a chat grounded in your live data: current
+    positions, watchlist, recent technical signals, and the AI Auto-Trader's
+    recent decisions. Ask things like "how risky is my portfolio right now?"
+    or "what has the auto-trader done today?" and get an answer based on what
+    the app actually sees - not generic advice. Hidden (with a setup message)
+    if the backend has no `ANTHROPIC_API_KEY` configured.
 
 ## AI features
 
-The AI Insight card, AI Auto-Trader, and Tonight's Picks are powered by the
-backend's `/api/ai/*` endpoints - see the
+The AI Insight card, AI Auto-Trader, Tonight's Picks, Daily AI Briefing, and
+Ask AI chat are all powered by the backend's `/api/ai/*` endpoints - see the
 [backend README](../backend#ai-analysis) for how the ML model is trained, how
 the optional AI analyst (`ANTHROPIC_API_KEY`) works, the auto-trader's safety
 model (disabled by default, paper-trading by default, real-money trading
 requires explicit confirmation, daily trade caps, position-size caps,
 market-hours-only), and how the
-[nightly Tonight's Picks scan](../backend#tonights-picks-nightly-deep-research-scan)
-works.
+[nightly Tonight's Picks scan](../backend#tonights-picks-nightly-deep-research-scan),
+[Ask the AI chat](../backend#ask-the-ai-chat), and
+[Daily AI Briefing](../backend#daily-ai-briefing) work.
 
 ⚠️ **The AI Auto-Trader can place real orders with real money in your Alpaca
 or Questrade account when configured to do so.** It is automated technical
@@ -179,6 +189,11 @@ it places, and can disable it at any time from the Auto Trade tab.
 advice.** Recent news and "catalysts" do not guarantee a stock will move in
 the expected direction at the next open - always do your own research before
 acting on a pick.
+
+⚠️ **The Daily AI Briefing and Ask AI chat are AI-generated commentary on your
+own data, not financial advice.** They can be wrong, incomplete, or based on
+stale web search results - always verify anything important yourself before
+acting on it.
 
 ## Background alerts
 

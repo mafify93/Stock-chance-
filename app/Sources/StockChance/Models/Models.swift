@@ -757,3 +757,65 @@ struct QuestradeOrder: Codable, Hashable {
     var state: String?
     var avgExecPrice: Double?
 }
+
+// MARK: - Ask the AI (chat) and Daily AI Briefing
+
+/// Whether an optional AI feature (chat, daily briefing) is configured -
+/// i.e. the backend has `ANTHROPIC_API_KEY` set.
+struct AIFeatureStatus: Codable, Hashable {
+    var configured: Bool
+}
+
+/// A holding sent as context to the AI - mirrors `Position`/broker positions
+/// but only the fields the AI needs.
+struct ChatPosition: Codable, Hashable {
+    var symbol: String
+    var quantity: Double
+    var avgEntryPrice: Double?
+}
+
+/// One turn in an "Ask the AI" conversation.
+struct ChatMessage: Codable, Identifiable, Hashable {
+    var id: UUID = UUID()
+    var role: String // "user" | "assistant"
+    var content: String
+
+    enum CodingKeys: String, CodingKey {
+        case role, content
+    }
+}
+
+/// Live data sent alongside a chat request so the AI can ground its answer
+/// in the user's actual positions and watchlist.
+struct AIChatContext: Encodable, Hashable {
+    var positions: [ChatPosition]
+    var watchlist: [String]
+}
+
+struct AIChatRequest: Encodable {
+    var messages: [ChatMessage]
+    var context: AIChatContext
+}
+
+struct AIChatResponse: Decodable, Hashable {
+    var reply: String
+    var disclaimer: String
+}
+
+/// Request body for the Daily AI Briefing - the user's current holdings and
+/// watchlist, so the briefing can be personalized.
+struct DailyBriefingRequest: Encodable {
+    var positions: [ChatPosition]
+    var watchlist: [String]
+}
+
+struct DailyBriefingResponse: Codable, Hashable {
+    var generatedAt: String
+    var briefing: String
+    var model: String
+    var disclaimer: String
+
+    var date: Date {
+        ISO8601DateFormatter.flexible.date(from: generatedAt) ?? Date()
+    }
+}

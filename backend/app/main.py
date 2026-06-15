@@ -7,7 +7,20 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .auto_trader import auto_trader
 from .night_scan import night_scan
-from .routers import ai, auto_trader as auto_trader_router, backtest, broker, daytrade, night_scan as night_scan_router, screener, signal, stocks, ws
+from .routers import (
+    ai,
+    ai_chat,
+    auto_trader as auto_trader_router,
+    backtest,
+    broker,
+    daily_briefing as daily_briefing_router,
+    daytrade,
+    night_scan as night_scan_router,
+    screener,
+    signal,
+    stocks,
+    ws,
+)
 
 
 @asynccontextmanager
@@ -47,8 +60,10 @@ app.include_router(daytrade.router)
 app.include_router(broker.router)
 app.include_router(backtest.router)
 app.include_router(ai.router)
+app.include_router(ai_chat.router)
 app.include_router(auto_trader_router.router)
 app.include_router(night_scan_router.router)
+app.include_router(daily_briefing_router.router)
 app.include_router(ws.router)
 
 

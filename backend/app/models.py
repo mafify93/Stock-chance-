@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class SearchResult(BaseModel):
@@ -489,3 +489,57 @@ class NightScanStatus(BaseModel):
     last_run_at: str | None = None
     next_run_at: str | None = None
     result: NightScanResult | None = None
+
+
+# --- Ask the AI (chat) and Daily AI Briefing ----------------------------------
+
+
+class AIFeatureStatus(BaseModel):
+    configured: bool
+
+
+class ChatPosition(BaseModel):
+    symbol: str
+    quantity: float
+    avg_entry_price: float | None = None
+
+
+class ChatMessage(BaseModel):
+    role: str  # "user" | "assistant"
+    content: str
+
+
+class AIChatContext(BaseModel):
+    positions: list[ChatPosition] = []
+    watchlist: list[str] = []
+
+
+class AIChatRequest(BaseModel):
+    messages: list[ChatMessage]
+    context: AIChatContext = Field(default_factory=AIChatContext)
+
+
+class AIChatResponse(BaseModel):
+    reply: str
+    disclaimer: str = (
+        "AI chat answers are generated from the data shown in the app (your "
+        "positions, watchlist, auto-trader activity, and current signals) "
+        "plus general knowledge - not financial advice and may be incomplete "
+        "or wrong."
+    )
+
+
+class DailyBriefingRequest(BaseModel):
+    positions: list[ChatPosition] = []
+    watchlist: list[str] = []
+
+
+class DailyBriefingResponse(BaseModel):
+    generated_at: str
+    briefing: str
+    model: str
+    disclaimer: str = (
+        "\"Daily Briefing\" is an AI-generated summary of your holdings and "
+        "watchlist, produced with live web search - speculative, "
+        "research-based commentary, not financial advice."
+    )

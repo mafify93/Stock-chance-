@@ -21,6 +21,9 @@ struct ContentView: View {
 
             AutoTraderView()
                 .tabItem { Label("Auto Trade", systemImage: "bolt.fill") }
+
+            ChatView()
+                .tabItem { Label("Ask AI", systemImage: "sparkles") }
         }
         .tint(Theme.gold)
         // Pin a light appearance so system controls (Form section headers,

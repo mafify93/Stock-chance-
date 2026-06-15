@@ -225,6 +225,45 @@ and produce a short "what to consider buying tomorrow" shortlist:
   AI model - not financial advice, and recent news does not guarantee a stock
   will move as expected. Always do your own research.
 
+## Ask the AI (chat)
+
+`POST /api/ai/chat` (`app/ai_chat.py`) is a conversational endpoint backed by
+Claude, grounded in the live data the app sends with each request:
+
+- The app sends the running conversation (`messages`) plus a `context` block
+  with the user's current positions and watchlist symbols.
+- The backend enriches that with a fresh signal/ML snapshot for each symbol
+  (via `app/ai_context.py`, capped at 12 symbols) and a summary of the AI
+  Auto-Trader's recent decisions, then asks Claude to answer the latest
+  message using only that data plus general market knowledge.
+- `GET /api/ai/chat/status` reports whether it's `configured`
+  (`ANTHROPIC_API_KEY` set) - if not, the "Ask AI" tab shows a setup message
+  instead of the chat.
+- Requires `ANTHROPIC_API_KEY` (same env var as the AI analyst). Each message
+  is one Claude API call (no web search), so cost scales with how much the
+  user chats.
+
+## Daily AI Briefing
+
+`POST /api/ai/daily-briefing` (`app/daily_briefing.py`) generates a short,
+personalized morning summary of the user's actual holdings and watchlist - it
+builds on the same Claude + web-search pattern as Tonight's Picks, but scoped
+to the symbols the app sends instead of a generic universe:
+
+- The app sends its current positions and watchlist; the backend adds a
+  signal/ML snapshot for each symbol, the AI Auto-Trader's recent activity,
+  and last night's Tonight's Picks result (if any).
+- Claude uses up to `WEB_SEARCH_MAX_USES` (4) web searches to check for
+  overnight news on those specific symbols, then returns a 3-6 sentence
+  briefing: what's notable, what moved and why (if found), and what to watch
+  today.
+- `GET /api/ai/daily-briefing/status` reports `configured`
+  (`ANTHROPIC_API_KEY` set) - the Today tab's "Daily Briefing" card is hidden
+  if not. The app loads this once per session (not on every periodic refresh)
+  to keep web-search cost bounded; the toolbar Refresh button reloads it.
+- Requires `ANTHROPIC_API_KEY` (same env var as the AI analyst and Tonight's
+  Picks).
+
 ## Deploying
 
 For the iOS/macOS app to reach this API from a real device (especially away

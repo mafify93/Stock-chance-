@@ -245,6 +245,24 @@ struct APIClient {
     func runNightScanNow() async throws -> NightScanStatus {
         try await post("/api/ai/night-scan/run-now", body: EmptyBody())
     }
+
+    // MARK: - Ask the AI (chat) and Daily AI Briefing
+
+    func aiChatStatus() async throws -> AIFeatureStatus {
+        try await get("/api/ai/chat/status")
+    }
+
+    func sendChatMessage(_ request: AIChatRequest) async throws -> AIChatResponse {
+        try await post("/api/ai/chat", body: request)
+    }
+
+    func dailyBriefingStatus() async throws -> AIFeatureStatus {
+        try await get("/api/ai/daily-briefing/status")
+    }
+
+    func dailyBriefing(_ request: DailyBriefingRequest) async throws -> DailyBriefingResponse {
+        try await post("/api/ai/daily-briefing", body: request)
+    }
 }
 
 /// Empty JSON body (`{}`) for POST endpoints that take no request payload.

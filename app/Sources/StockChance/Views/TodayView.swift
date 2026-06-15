@@ -8,6 +8,9 @@ struct TodayView: View {
     @EnvironmentObject private var brokerStore: BrokerStore
     @StateObject private var viewModel = TodayViewModel()
     @StateObject private var nightScanViewModel = NightScanViewModel()
+    @StateObject private var briefingViewModel = DailyBriefingViewModel()
+    @ObservedObject private var positionStore = PositionStore.shared
+    @ObservedObject private var watchlistStore = WatchlistStore.shared
     @State private var showSettings = false
 
     var body: some View {
@@ -18,7 +21,12 @@ struct TodayView: View {
                 .toolbar {
                     ToolbarItem(placement: .primaryAction) {
                         Button {
-                            Task { await viewModel.refresh() }
+                            Task {
+                                await viewModel.refresh()
+                                if briefingViewModel.isAvailable == true {
+                                    await briefingViewModel.load(baseURL: apiConfig.baseURL, positions: positionStore.positions, watchlist: watchlistStore.symbols)
+                                }
+                            }
                         } label: {
                             Label("Refresh", systemImage: "arrow.clockwise")
                         }
@@ -46,6 +54,15 @@ struct TodayView: View {
                     await nightScanViewModel.load(baseURL: apiConfig.baseURL)
                 }
                 .task {
+                    // Computed once per session (not on the 60s refresh
+                    // below) to keep AI calls bounded - pull-to-refresh
+                    // (the toolbar Refresh button) re-loads it on demand.
+                    await briefingViewModel.checkAvailability(baseURL: apiConfig.baseURL)
+                    if briefingViewModel.isAvailable == true {
+                        await briefingViewModel.load(baseURL: apiConfig.baseURL, positions: positionStore.positions, watchlist: watchlistStore.symbols)
+                    }
+                }
+                .task {
                     // Keep the morning scan reasonably fresh while this tab
                     // is visible, without a disruptive full-screen reload.
                     while !Task.isCancelled {
@@ -68,6 +85,8 @@ struct TodayView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     MarketSessionBanner(session: scan.session)
+
+                    dailyBriefingSection
 
                     tonightsPicksSection
 
@@ -153,6 +172,46 @@ struct TodayView: View {
                     }
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var dailyBriefingSection: some View {
+        if briefingViewModel.isAvailable == true {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("DAILY BRIEFING")
+                        .luxuryEyebrow()
+                    Spacer()
+                    if let briefing = briefingViewModel.briefing {
+                        Text(briefing.date, format: .relative(presentation: .named))
+                            .font(.caption2)
+                            .foregroundStyle(Theme.textSecondary)
+                    }
+                }
+                Text("Your Morning AI Briefing")
+                    .font(Theme.sectionTitleFont())
+                    .foregroundStyle(Theme.textPrimary)
+
+                if briefingViewModel.isLoading && briefingViewModel.briefing == nil {
+                    HStack {
+                        ProgressView()
+                        Text("Reviewing your holdings and watchlist...")
+                            .font(.subheadline)
+                            .foregroundStyle(Theme.textSecondary)
+                    }
+                } else if let briefing = briefingViewModel.briefing {
+                    ExpandableText(text: briefing.briefing, lineLimit: 4, font: .subheadline, color: Theme.textPrimary)
+                    Text(briefing.disclaimer)
+                        .font(.caption2)
+                        .foregroundStyle(Theme.textSecondary.opacity(0.8))
+                } else if let error = briefingViewModel.errorMessage {
+                    Text(error)
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.textSecondary)
+                }
+            }
+            .luxuryCard()
         }
     }
 
