@@ -218,18 +218,6 @@ struct SettingsView: View {
                     }
                 }
 
-                Section {
-                    NavigationLink {
-                        AutoTraderView()
-                    } label: {
-                        Label("AI Auto-Trader", systemImage: "brain.head.profile")
-                    }
-                } header: {
-                    Text("AI Auto-Trader")
-                } footer: {
-                    Text("Let an AI model combining technical signals, machine learning, and (optionally) an AI analyst automatically place trades through Alpaca. Disabled by default - real-money trading requires additional confirmation inside this screen.")
-                }
-
                 Section("About") {
                     LabeledContent("Data Source", value: "Yahoo Finance (free)")
                     LabeledContent("Signal Engine", value: "Technical analysis (RSI, MACD, SMA/EMA, Bollinger Bands, Stochastic, ADX, ATR)")

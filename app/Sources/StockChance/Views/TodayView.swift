@@ -153,9 +153,7 @@ struct TodayView: View {
                     .foregroundStyle(Theme.textPrimary)
 
                 if let result = status.result {
-                    Text(result.summary)
-                        .font(.subheadline)
-                        .foregroundStyle(Theme.textSecondary)
+                    ExpandableText(text: result.summary, lineLimit: 2, font: .subheadline, color: Theme.textSecondary)
 
                     if result.picks.isEmpty {
                         Text("No strong catalysts found in last night's scan.")
@@ -237,9 +235,7 @@ private struct MorningCandidateCard: View {
                 }
             }
 
-            Text(candidate.plan)
-                .font(.subheadline)
-                .foregroundStyle(Theme.textPrimary)
+            ExpandableText(text: candidate.plan, lineLimit: 2, font: .subheadline, color: Theme.textPrimary)
 
             HStack(spacing: 20) {
                 statPair("Daily Trend", candidate.dailyTrend.label)
@@ -250,9 +246,7 @@ private struct MorningCandidateCard: View {
             }
 
             if let reason = candidate.reasons.first {
-                Text(reason)
-                    .font(.caption)
-                    .foregroundStyle(Theme.textSecondary)
+                ExpandableText(text: reason, lineLimit: 1, font: .caption, color: Theme.textSecondary)
             }
         }
         .luxuryCard()
@@ -353,13 +347,9 @@ private struct NightPickCard: View {
                     .foregroundStyle(Theme.textSecondary)
             }
 
-            Text(pick.catalyst)
-                .font(.subheadline)
-                .foregroundStyle(Theme.textPrimary)
+            ExpandableText(text: pick.catalyst, lineLimit: 2, font: .subheadline, color: Theme.textPrimary)
 
-            Text(pick.plan)
-                .font(.caption)
-                .foregroundStyle(Theme.textSecondary)
+            ExpandableText(text: pick.plan, lineLimit: 2, font: .caption, color: Theme.textSecondary)
         }
         .luxuryCard()
     }

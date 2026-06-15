@@ -29,23 +29,25 @@ struct AutoTraderView: View {
     @State private var saveMessage: String?
 
     var body: some View {
-        Form {
-            statusSection
-            symbolsSection
-            strategySection
-            environmentSection
-            credentialsSection
-            actionsSection
-            decisionsSection
-            disclaimerSection
-        }
-        .navigationTitle("AI Auto-Trader")
-        .luxuryBackground()
-        .task {
-            await viewModel.load(baseURL: apiConfig.baseURL)
-            if !hasLoadedConfig, let config = viewModel.status?.config {
-                apply(config)
-                hasLoadedConfig = true
+        NavigationStack {
+            Form {
+                statusSection
+                symbolsSection
+                strategySection
+                environmentSection
+                credentialsSection
+                actionsSection
+                decisionsSection
+                disclaimerSection
+            }
+            .navigationTitle("AI Auto-Trader")
+            .luxuryBackground()
+            .task {
+                await viewModel.load(baseURL: apiConfig.baseURL)
+                if !hasLoadedConfig, let config = viewModel.status?.config {
+                    apply(config)
+                    hasLoadedConfig = true
+                }
             }
         }
     }

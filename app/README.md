@@ -40,19 +40,20 @@ app/
       BackgroundRefreshManager.swift # iOS background refresh: checks alerts when the app isn't open
     ViewModels/                # @Observable view models
     Views/
-      ContentView.swift         # Root TabView (Today / Watchlist / Portfolio / Screener / Search / Settings)
+      ContentView.swift         # Root TabView (Today / Watchlist / Portfolio / Screener / Auto Trade / Settings)
       TodayView.swift           # Morning watchlist: market session + Tonight's Picks + Buy at Open / Watch / Avoid
       WatchlistView.swift       # Premium live watchlist with signal badges and price/signal alerts
       PortfolioView.swift       # "I bought this" positions + connected broker account balances + journal link
       JournalView.swift         # Trade journal: logged orders, realized P/L, win rate
       BacktestView.swift        # Walk-forward backtest of the signal engine vs buy-and-hold
       ScreenerView.swift        # "What to buy / what to sell" rankings
-      SearchView.swift          # Search any symbol (Yahoo Finance universe)
+      SearchView.swift          # Search any symbol (Yahoo Finance universe) - presented from Watchlist's "+" button
+      ExpandableText.swift      # Collapsible "Read more" text used for long AI summaries/plans
       StockDetailView.swift     # Daily + intraday charts, signal breakdown, levels, analyst outlook, AI Insight, "I Bought This"
       MarketSessionBanner.swift # Pre-market/open/after-hours/closed banner
       SignalBadge.swift          # Buy/Sell/Hold badges and alert banners
-      AutoTraderView.swift      # AI Auto-Trader configuration, safety confirmations, and decision log
-      SettingsView.swift        # Backend URL + broker credentials + AI Auto-Trader configuration
+      AutoTraderView.swift      # "Auto Trade" tab: AI Auto-Trader configuration, safety confirmations, and decision log
+      SettingsView.swift        # Backend URL, broker credentials, and notification permissions
     Resources/                  # Assets.xcassets, macOS entitlements
 ```
 
@@ -126,20 +127,19 @@ backend, use HTTPS.
    Signal** card with an intraday (5-minute) chart, VWAP/entry/target/stop
    lines, and live alerts.
 7. **Search** - any stock/ETF/index/crypto/FX symbol available on Yahoo
-   Finance.
+   Finance, via the "+" button on the Watchlist tab.
 8. **AI Insight** (in Stock detail) - a combined recommendation from the
    rule-based signal, a machine-learning model trained on years of price
    history (probability the price is higher in 5 trading days), and -
    optionally - an AI analyst's plain-English summary. Hidden automatically if
    the backend has no trained model and no AI analyst configured.
-9. **AI Auto-Trader** (in Settings) - configure an autonomous trading loop
-   that uses the same combined AI recommendation to place orders through
-   Alpaca: pick symbols, a minimum confidence threshold, max position size,
-   daily trade cap, and check frequency. **Disabled by default.** Real-money
-   trading requires switching to the "Live" environment *and* a separate
-   "Confirm Real-Money Trading" toggle, each with its own warning. Shows a log
-   of recent decisions (including HOLDs and skipped trades with the reason
-   why).
+9. **Auto Trade** (its own tab) - configure an autonomous trading loop that
+   uses the same combined AI recommendation to place orders through Alpaca:
+   pick symbols, a minimum confidence threshold, max position size, daily
+   trade cap, and check frequency. **Disabled by default.** Real-money trading
+   requires switching to the "Live" environment *and* a separate "Confirm
+   Real-Money Trading" toggle, each with its own warning. Shows a log of
+   recent decisions (including HOLDs and skipped trades with the reason why).
 10. **Tonight's Picks** (top of Today) - every evening, the backend has Claude
     do live web research across a curated, catalyst-prone universe of ~35
     liquid US stocks/ETFs (not your personal watchlist) for recent news -
@@ -149,8 +149,8 @@ backend, use HTTPS.
     plan. Runs automatically (no setup needed beyond the backend's
     `ANTHROPIC_API_KEY`); hidden if that key isn't configured.
 11. **Settings** - configure and test the backend connection, broker
-    credentials (Alpaca paper/live, Questrade), AI Auto-Trader, and
-    check/enable notification permissions.
+    credentials (Alpaca paper/live, Questrade), and check/enable notification
+    permissions.
 
 ## AI features
 
@@ -168,7 +168,7 @@ works.
 account when configured to do so.** It is automated technical analysis +
 machine learning, not financial advice, and is not guaranteed to be
 profitable - you could lose money. You are solely responsible for any trades
-it places, and can disable it at any time from Settings.
+it places, and can disable it at any time from the Auto Trade tab.
 
 ⚠️ **Tonight's Picks is speculative, AI-generated research, not financial
 advice.** Recent news and "catalysts" do not guarantee a stock will move in

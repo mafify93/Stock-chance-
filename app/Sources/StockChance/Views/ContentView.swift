@@ -19,8 +19,8 @@ struct ContentView: View {
             ScreenerView()
                 .tabItem { Label("Screener", systemImage: "chart.bar.fill") }
 
-            SearchView()
-                .tabItem { Label("Search", systemImage: "magnifyingglass") }
+            AutoTraderView()
+                .tabItem { Label("Auto Trade", systemImage: "bolt.fill") }
 
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gear") }
