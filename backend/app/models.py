@@ -398,19 +398,23 @@ class AIAnalysisResponse(BaseModel):
 
 class AutoTraderConfigRequest(BaseModel):
     enabled: bool = False
+    broker: str = "alpaca"  # "alpaca" | "questrade"
     symbols: list[str] = []
     min_confidence: float = 70.0
     max_position_value: float = 100.0
     max_daily_trades: int = 3
     poll_interval_minutes: int = 15
-    environment: str = "paper"  # "paper" | "live"
+    environment: str = "paper"  # "paper" | "live" (Alpaca only - Questrade is always real money)
     confirmed_real_money: bool = False
     alpaca_api_key_id: str | None = None
     alpaca_api_secret_key: str | None = None
+    questrade_refresh_token: str | None = None
+    questrade_account_number: str | None = None
 
 
 class AutoTraderConfig(BaseModel):
     enabled: bool
+    broker: str
     symbols: list[str]
     min_confidence: float
     max_position_value: float
@@ -419,6 +423,7 @@ class AutoTraderConfig(BaseModel):
     environment: str
     confirmed_real_money: bool
     alpaca_configured: bool
+    questrade_configured: bool
 
 
 class AutoTraderDecision(BaseModel):
@@ -438,9 +443,10 @@ class AutoTraderStatus(BaseModel):
     decisions: list[AutoTraderDecision]
     disclaimer: str = (
         "The AI Auto-Trader places REAL orders with REAL money when enabled "
-        "with a live, confirmed Alpaca account. It is automated technical "
-        "analysis, not financial advice, and can lose money. You are solely "
-        "responsible for any trades it places - disable it at any time."
+        "with a confirmed Alpaca or Questrade account (Questrade has no paper "
+        "mode, so it always requires confirmed_real_money). It is automated "
+        "technical analysis, not financial advice, and can lose money. You are "
+        "solely responsible for any trades it places - disable it at any time."
     )
 
 

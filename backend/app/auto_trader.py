@@ -1,15 +1,19 @@
 """AI Auto-Trader: an optional background loop that periodically evaluates
 the combined AI signal (rule-based + ML + LLM, see `app.ai_combine`) for a
-configured list of symbols and places REAL Alpaca orders when conditions are
-met.
+configured list of symbols and places REAL orders (via Alpaca or Questrade)
+when conditions are met.
 
 === SAFETY MODEL - READ BEFORE ENABLING ===
 
 - Disabled by default (`enabled: false`).
-- For `environment: "live"`, orders are only placed if `confirmed_real_money`
-  is ALSO true - otherwise live decisions are logged as dry-runs only. This
-  mirrors the iOS app's "Enable Live Trading" confirmation, but since this
-  loop runs server-side without the app open, it needs its own explicit flag.
+- `broker` selects which brokerage executes orders: "alpaca" (supports a
+  simulated paper account) or "questrade" (Canadian brokerage, REAL MONEY
+  ONLY - there is no paper-trading sandbox).
+- For Alpaca with `environment: "live"`, and for Questrade ALWAYS, orders are
+  only placed if `confirmed_real_money` is ALSO true - otherwise live
+  decisions are logged as dry-runs only. This mirrors the iOS app's "Enable
+  Live Trading" confirmation, but since this loop runs server-side without
+  the app open, it needs its own explicit flag.
 - `min_confidence` (0-100) gates every trade - the combined signal must clear
   this bar before anything happens.
 - `max_position_value` caps the dollar size of any single BUY (an existing
@@ -24,11 +28,15 @@ met.
 
 Unlike the rest of this backend (which is stateless and never stores
 brokerage credentials - the iOS app sends them per-request), the auto-trader
-MUST persist Alpaca API keys server-side to act while the app is closed.
-They're stored in `data/auto_trader_config.json` with file permissions set to
-0600 (owner read/write only). This directory is gitignored. Only run this
-backend on a machine you trust, and validate with Alpaca PAPER credentials
-before ever switching to `live`.
+MUST persist credentials server-side to act while the app is closed: Alpaca
+API keys, or a Questrade refresh token + account number. Questrade refresh
+tokens are single-use and rotate on every exchange - the rotated token is
+persisted back to this file automatically after each run. Credentials are
+stored in `data/auto_trader_config.json` with file permissions set to 0600
+(owner read/write only). This directory is gitignored. Only run this backend
+on a machine you trust, and validate with Alpaca PAPER credentials (or
+Questrade with `confirmed_real_money: false`, which dry-runs) before ever
+enabling real-money trading.
 """
 from __future__ import annotations
 
@@ -44,7 +52,7 @@ from . import ai_analyst, models
 from .ai_combine import combine
 from .intraday import get_market_session
 from .ml.model import ml_predictor
-from .providers import alpaca, yahoo
+from .providers import alpaca, questrade, yahoo
 from .signals import analyze
 
 logger = logging.getLogger(__name__)
@@ -56,6 +64,7 @@ MAX_LOG_ENTRIES = 200
 
 _DEFAULT_CONFIG = {
     "enabled": False,
+    "broker": "alpaca",
     "symbols": [],
     "min_confidence": 70.0,
     "max_position_value": 100.0,
@@ -65,7 +74,66 @@ _DEFAULT_CONFIG = {
     "confirmed_real_money": False,
     "alpaca_api_key_id": None,
     "alpaca_api_secret_key": None,
+    "questrade_refresh_token": None,
+    "questrade_account_number": None,
 }
+
+
+class _BrokerSession:
+    """Broker-agnostic interface the evaluation loop trades through."""
+
+    def get_positions(self) -> dict[str, dict]:
+        """Current positions keyed by symbol; each value has at least a
+        `qty` key (float-able)."""
+        raise NotImplementedError
+
+    def place_order(self, symbol: str, qty: float, side: str) -> dict:
+        """Places an order. `side` is `"buy"` or `"sell"`. Returns a dict
+        with at least an `id` key."""
+        raise NotImplementedError
+
+
+class _AlpacaSession(_BrokerSession):
+    def __init__(self, api_key: str, api_secret: str, base_url: str) -> None:
+        self._api_key = api_key
+        self._api_secret = api_secret
+        self._base_url = base_url
+
+    def get_positions(self) -> dict[str, dict]:
+        positions = alpaca.get_positions(self._api_key, self._api_secret, self._base_url)
+        return {p["symbol"]: p for p in positions}
+
+    def place_order(self, symbol: str, qty: float, side: str) -> dict:
+        return alpaca.place_order(self._api_key, self._api_secret, symbol, qty, side, base_url=self._base_url)
+
+
+class _QuestradeSession(_BrokerSession):
+    def __init__(self, access_token: str, api_server: str, account_number: str) -> None:
+        self._access_token = access_token
+        self._api_server = api_server
+        self._account_number = account_number
+
+    def get_positions(self) -> dict[str, dict]:
+        positions = questrade.get_positions(self._access_token, self._api_server, self._account_number)
+        return {p["symbol"]: {"symbol": p["symbol"], "qty": p["openQuantity"]} for p in positions}
+
+    def place_order(self, symbol: str, qty: float, side: str) -> dict:
+        matches = questrade.search_symbols(self._access_token, self._api_server, symbol)
+        match = next((s for s in matches if s.get("symbol") == symbol), None)
+        if match is None:
+            raise questrade.QuestradeError(404, f"Could not find a Questrade symbolId for {symbol}")
+
+        order_side = "Buy" if side == "buy" else "Sell"
+        data = questrade.place_order(
+            self._access_token,
+            self._api_server,
+            self._account_number,
+            match["symbolId"],
+            qty,
+            order_side,
+        )
+        placed = (data.get("orders") or [{}])[0]
+        return {"id": placed.get("id", "")}
 
 
 class AutoTraderEngine:
@@ -115,6 +183,7 @@ class AutoTraderEngine:
             c = self._config
             return models.AutoTraderConfig(
                 enabled=c["enabled"],
+                broker=c.get("broker", "alpaca"),
                 symbols=list(c["symbols"]),
                 min_confidence=c["min_confidence"],
                 max_position_value=c["max_position_value"],
@@ -123,13 +192,17 @@ class AutoTraderEngine:
                 environment=c["environment"],
                 confirmed_real_money=c["confirmed_real_money"],
                 alpaca_configured=bool(c.get("alpaca_api_key_id") and c.get("alpaca_api_secret_key")),
+                questrade_configured=bool(c.get("questrade_refresh_token") and c.get("questrade_account_number")),
             )
 
     def update_config(self, req: models.AutoTraderConfigRequest) -> models.AutoTraderConfig:
         if req.environment not in ("paper", "live"):
             raise ValueError("environment must be 'paper' or 'live'")
+        if req.broker not in ("alpaca", "questrade"):
+            raise ValueError("broker must be 'alpaca' or 'questrade'")
         with self._lock:
             self._config["enabled"] = req.enabled
+            self._config["broker"] = req.broker
             self._config["symbols"] = [s.upper() for s in req.symbols]
             self._config["min_confidence"] = max(0.0, min(100.0, req.min_confidence))
             self._config["max_position_value"] = max(0.0, req.max_position_value)
@@ -143,6 +216,10 @@ class AutoTraderEngine:
                 self._config["alpaca_api_key_id"] = req.alpaca_api_key_id
             if req.alpaca_api_secret_key:
                 self._config["alpaca_api_secret_key"] = req.alpaca_api_secret_key
+            if req.questrade_refresh_token:
+                self._config["questrade_refresh_token"] = req.questrade_refresh_token
+            if req.questrade_account_number:
+                self._config["questrade_account_number"] = req.questrade_account_number
             self._save_config()
         return self.get_config()
 
@@ -178,6 +255,40 @@ class AutoTraderEngine:
             self._save_log()
         return entry
 
+    # --- broker session -----------------------------------------------------
+
+    def _build_session(self, config: dict) -> tuple[_BrokerSession | None, str | None]:
+        """Builds a broker session for this run, or returns `(None, reason)`
+        if credentials aren't configured (or Questrade auth fails)."""
+        if config["broker"] == "questrade":
+            return self._questrade_session(config)
+
+        api_key = config.get("alpaca_api_key_id")
+        api_secret = config.get("alpaca_api_secret_key")
+        if not api_key or not api_secret:
+            return None, "no Alpaca credentials configured"
+        base_url = alpaca.LIVE_BASE_URL if config["environment"] == "live" else alpaca.PAPER_BASE_URL
+        return _AlpacaSession(api_key, api_secret, base_url), None
+
+    def _questrade_session(self, config: dict) -> tuple[_QuestradeSession | None, str | None]:
+        refresh_token = config.get("questrade_refresh_token")
+        account_number = config.get("questrade_account_number")
+        if not refresh_token or not account_number:
+            return None, "no Questrade credentials configured"
+
+        try:
+            data = questrade.refresh_access_token(refresh_token)
+        except questrade.QuestradeError as exc:
+            return None, f"Questrade auth failed: {exc}"
+
+        # Questrade refresh tokens are single-use - persist the rotated token
+        # immediately so the next run can still authenticate.
+        with self._lock:
+            self._config["questrade_refresh_token"] = data["refresh_token"]
+            self._save_config()
+
+        return _QuestradeSession(data["access_token"], data["api_server"], account_number), None
+
     # --- evaluation loop ------------------------------------------------------
 
     def run_once(self) -> list[dict]:
@@ -194,16 +305,13 @@ class AutoTraderEngine:
         if get_market_session().status != "open":
             return []
 
-        base_url = alpaca.LIVE_BASE_URL if config["environment"] == "live" else alpaca.PAPER_BASE_URL
-        api_key = config.get("alpaca_api_key_id")
-        api_secret = config.get("alpaca_api_secret_key")
+        session, session_error = self._build_session(config)
 
         positions_by_symbol: dict[str, dict] = {}
-        if api_key and api_secret:
+        if session is not None:
             try:
-                positions = alpaca.get_positions(api_key, api_secret, base_url)
-                positions_by_symbol = {p["symbol"]: p for p in positions}
-            except alpaca.AlpacaError:
+                positions_by_symbol = session.get_positions()
+            except (alpaca.AlpacaError, questrade.QuestradeError):
                 logger.exception("Could not fetch positions for auto-trader")
 
         today = datetime.now(timezone.utc).date().isoformat()
@@ -214,7 +322,7 @@ class AutoTraderEngine:
 
         entries = []
         for symbol in config["symbols"]:
-            decision = self._evaluate_symbol(symbol, config, positions_by_symbol, trades_today, api_key, api_secret, base_url)
+            decision = self._evaluate_symbol(symbol, config, positions_by_symbol, trades_today, session, session_error)
             if decision["executed"]:
                 trades_today += 1
             entries.append(self._record(decision))
@@ -227,9 +335,8 @@ class AutoTraderEngine:
         config: dict,
         positions_by_symbol: dict[str, dict],
         trades_today: int,
-        api_key: str | None,
-        api_secret: str | None,
-        base_url: str,
+        session: _BrokerSession | None,
+        session_error: str | None,
     ) -> dict:
         try:
             df = yahoo.get_history(symbol, "1y", "1d")
@@ -254,8 +361,8 @@ class AutoTraderEngine:
         if action == "HOLD":
             return _decision(symbol, action, confidence, False, "combined signal is HOLD")
 
-        if not api_key or not api_secret:
-            return _decision(symbol, action, confidence, False, "no Alpaca credentials configured")
+        if session is None:
+            return _decision(symbol, action, confidence, False, session_error or "no broker credentials configured")
 
         if trades_today >= config["max_daily_trades"]:
             return _decision(symbol, action, confidence, False, f"daily trade limit reached ({config['max_daily_trades']})")
@@ -275,13 +382,14 @@ class AutoTraderEngine:
             qty = float(existing["qty"])
             side = "sell"
 
-        if config["environment"] == "live" and not config["confirmed_real_money"]:
+        is_live = config["broker"] == "questrade" or config["environment"] == "live"
+        if is_live and not config["confirmed_real_money"]:
             return _decision(symbol, action, confidence, False, f"DRY RUN - would {side} {qty} {symbol} but live trading not confirmed (set confirmed_real_money)")
 
         try:
-            order = alpaca.place_order(api_key, api_secret, symbol, qty, side, base_url=base_url)
+            order = session.place_order(symbol, qty, side)
             return _decision(symbol, action, confidence, True, f"placed {side} order for {qty} {symbol}", order_id=str(order.get("id", "")))
-        except alpaca.AlpacaError as exc:
+        except (alpaca.AlpacaError, questrade.QuestradeError) as exc:
             return _decision(symbol, action, confidence, False, f"order failed: {exc}")
 
     # --- background task --------------------------------------------------

@@ -134,12 +134,14 @@ backend, use HTTPS.
    optionally - an AI analyst's plain-English summary. Hidden automatically if
    the backend has no trained model and no AI analyst configured.
 9. **Auto Trade** (its own tab) - configure an autonomous trading loop that
-   uses the same combined AI recommendation to place orders through Alpaca:
-   pick symbols, a minimum confidence threshold, max position size, daily
-   trade cap, and check frequency. **Disabled by default.** Real-money trading
-   requires switching to the "Live" environment *and* a separate "Confirm
-   Real-Money Trading" toggle, each with its own warning. Shows a log of
-   recent decisions (including HOLDs and skipped trades with the reason why).
+   uses the same combined AI recommendation to place orders through either
+   Alpaca or Questrade: pick a broker, symbols, a minimum confidence
+   threshold, max position size, daily trade cap, and check frequency.
+   **Disabled by default.** Real-money trading requires a separate "Confirm
+   Real-Money Trading" toggle with its own warning - for Alpaca this also
+   requires switching to the "Live" environment, while Questrade (no
+   paper-trading mode) always requires it. Shows a log of recent decisions
+   (including HOLDs and skipped trades with the reason why).
 10. **Tonight's Picks** (top of Today) - every evening, the backend has Claude
     do live web research across a curated, catalyst-prone universe of ~35
     liquid US stocks/ETFs (not your personal watchlist) for recent news -
@@ -165,8 +167,8 @@ market-hours-only), and how the
 works.
 
 ⚠️ **The AI Auto-Trader can place real orders with real money in your Alpaca
-account when configured to do so.** It is automated technical analysis +
-machine learning, not financial advice, and is not guaranteed to be
+or Questrade account when configured to do so.** It is automated technical
+analysis + machine learning, not financial advice, and is not guaranteed to be
 profitable - you could lose money. You are solely responsible for any trades
 it places, and can disable it at any time from the Auto Trade tab.
 

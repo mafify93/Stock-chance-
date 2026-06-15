@@ -12,16 +12,18 @@ router = APIRouter(prefix="/api/ai/auto-trader", tags=["auto-trader"])
 @router.get("/config", response_model=models.AutoTraderConfig)
 async def get_config():
     """Current auto-trader configuration. Credentials are never returned -
-    only whether Alpaca credentials are configured."""
+    only whether Alpaca/Questrade credentials are configured."""
     return auto_trader.get_config()
 
 
 @router.post("/config", response_model=models.AutoTraderConfig)
 async def update_config(config: models.AutoTraderConfigRequest):
     """Update the auto-trader configuration. Disabled by default - placing
-    REAL orders also requires `environment: "live"` AND
-    `confirmed_real_money: true`. Omit `alpaca_api_key_id` /
-    `alpaca_api_secret_key` to leave previously-saved credentials unchanged."""
+    REAL orders also requires `confirmed_real_money: true` (for Alpaca, also
+    `environment: "live"`; Questrade has no paper mode and always requires
+    it). Omit `alpaca_api_key_id` / `alpaca_api_secret_key` /
+    `questrade_refresh_token` / `questrade_account_number` to leave
+    previously-saved credentials unchanged."""
     try:
         return auto_trader.update_config(config)
     except ValueError as exc:

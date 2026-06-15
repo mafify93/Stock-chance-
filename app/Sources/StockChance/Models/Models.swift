@@ -189,19 +189,23 @@ struct AIAnalysisResponse: Codable, Hashable {
 /// saved credentials unchanged.
 struct AutoTraderConfigRequest: Encodable {
     var enabled: Bool
+    var broker: String = "alpaca" // "alpaca" | "questrade"
     var symbols: [String]
     var minConfidence: Double
     var maxPositionValue: Double
     var maxDailyTrades: Int
     var pollIntervalMinutes: Int
-    var environment: String // "paper" | "live"
+    var environment: String // "paper" | "live" (Alpaca only - Questrade is always real money)
     var confirmedRealMoney: Bool
     var alpacaApiKeyId: String?
     var alpacaApiSecretKey: String?
+    var questradeRefreshToken: String?
+    var questradeAccountNumber: String?
 }
 
 struct AutoTraderConfig: Codable, Hashable {
     var enabled: Bool
+    var broker: String // "alpaca" | "questrade"
     var symbols: [String]
     var minConfidence: Double
     var maxPositionValue: Double
@@ -210,6 +214,7 @@ struct AutoTraderConfig: Codable, Hashable {
     var environment: String // "paper" | "live"
     var confirmedRealMoney: Bool
     var alpacaConfigured: Bool
+    var questradeConfigured: Bool
 }
 
 /// One evaluation result from the auto-trader - a HOLD, a skipped trade with

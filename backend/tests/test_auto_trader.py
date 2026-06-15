@@ -35,9 +35,11 @@ def engine(tmp_path, monkeypatch):
 def test_default_config_is_disabled(engine):
     config = engine.get_config()
     assert config.enabled is False
+    assert config.broker == "alpaca"
     assert config.environment == "paper"
     assert config.confirmed_real_money is False
     assert config.alpaca_configured is False
+    assert config.questrade_configured is False
 
 
 def test_update_config_persists_and_reloads(engine):
@@ -68,6 +70,28 @@ def test_update_config_rejects_invalid_environment(engine):
     req = models.AutoTraderConfigRequest(environment="bogus")
     with pytest.raises(ValueError):
         engine.update_config(req)
+
+
+def test_update_config_rejects_invalid_broker(engine):
+    req = models.AutoTraderConfigRequest(broker="bogus")
+    with pytest.raises(ValueError):
+        engine.update_config(req)
+
+
+def test_update_config_persists_questrade_credentials(engine):
+    req = models.AutoTraderConfigRequest(
+        broker="questrade",
+        symbols=["aapl"],
+        questrade_refresh_token="refresh-1",
+        questrade_account_number="12345678",
+    )
+    config = engine.update_config(req)
+    assert config.broker == "questrade"
+    assert config.questrade_configured is True
+
+    on_disk = json.loads(auto_trader_module.CONFIG_PATH.read_text())
+    assert on_disk["questrade_refresh_token"] == "refresh-1"
+    assert on_disk["questrade_account_number"] == "12345678"
 
 
 def test_run_once_does_nothing_with_no_symbols(engine):
@@ -176,6 +200,89 @@ def test_run_once_sells_existing_position(engine, monkeypatch):
     entries = engine.run_once()
     assert entries[0]["executed"] is True
     assert placed["args"] == ("AAPL", 3.0, "sell")
+
+
+def test_run_once_buys_with_questrade_and_persists_rotated_token(engine, monkeypatch):
+    monkeypatch.setattr(auto_trader_module, "get_market_session", lambda: MarketSession(status="open", now_et="x"))
+    monkeypatch.setattr(auto_trader_module.yahoo, "get_history", lambda *a, **k: _trending_df())
+    monkeypatch.setattr(
+        auto_trader_module, "analyze",
+        lambda symbol, df: SignalResult(symbol=symbol, action="STRONG_BUY", score=0.9, confidence=95, price=100.0, reasons=["strong uptrend"]),
+    )
+    monkeypatch.setattr(auto_trader_module.ml_predictor, "predict", lambda df: None)
+
+    monkeypatch.setattr(
+        auto_trader_module.questrade, "refresh_access_token",
+        lambda refresh_token: {
+            "access_token": "access-2",
+            "api_server": "https://api.questrade.com",
+            "refresh_token": "refresh-2",
+            "expires_in": 1800,
+            "token_type": "Bearer",
+        },
+    )
+    monkeypatch.setattr(auto_trader_module.questrade, "get_positions", lambda *a, **k: [])
+    monkeypatch.setattr(
+        auto_trader_module.questrade, "search_symbols",
+        lambda access_token, api_server, prefix: [{"symbol": "AAPL", "symbolId": 8049, "description": "Apple Inc."}],
+    )
+
+    placed = {}
+
+    def fake_place_order(access_token, api_server, account_number, symbol_id, quantity, side, **kwargs):
+        placed["args"] = (account_number, symbol_id, quantity, side)
+        return {"orders": [{"id": 555}]}
+
+    monkeypatch.setattr(auto_trader_module.questrade, "place_order", fake_place_order)
+
+    engine.update_config(models.AutoTraderConfigRequest(
+        enabled=True, broker="questrade", symbols=["AAPL"], min_confidence=50, max_position_value=1000,
+        confirmed_real_money=True, questrade_refresh_token="refresh-1", questrade_account_number="12345678",
+    ))
+    entries = engine.run_once()
+    assert entries[0]["executed"] is True
+    assert entries[0]["order_id"] == "555"
+    assert placed["args"] == ("12345678", 8049, 10, "Buy")
+
+    # The single-use refresh token must be rotated and persisted.
+    assert engine.get_config().broker == "questrade"
+    on_disk = json.loads(auto_trader_module.CONFIG_PATH.read_text())
+    assert on_disk["questrade_refresh_token"] == "refresh-2"
+
+
+def test_run_once_questrade_without_confirmation_is_dry_run(engine, monkeypatch):
+    monkeypatch.setattr(auto_trader_module, "get_market_session", lambda: MarketSession(status="open", now_et="x"))
+    monkeypatch.setattr(auto_trader_module.yahoo, "get_history", lambda *a, **k: _trending_df())
+    monkeypatch.setattr(
+        auto_trader_module, "analyze",
+        lambda symbol, df: SignalResult(symbol=symbol, action="STRONG_BUY", score=0.9, confidence=95, price=100.0, reasons=["strong uptrend"]),
+    )
+    monkeypatch.setattr(auto_trader_module.ml_predictor, "predict", lambda df: None)
+
+    monkeypatch.setattr(
+        auto_trader_module.questrade, "refresh_access_token",
+        lambda refresh_token: {
+            "access_token": "access-2",
+            "api_server": "https://api.questrade.com",
+            "refresh_token": "refresh-2",
+            "expires_in": 1800,
+            "token_type": "Bearer",
+        },
+    )
+    monkeypatch.setattr(auto_trader_module.questrade, "get_positions", lambda *a, **k: [])
+
+    def fail_place_order(*args, **kwargs):
+        raise AssertionError("should not place a live order without confirmation")
+
+    monkeypatch.setattr(auto_trader_module.questrade, "place_order", fail_place_order)
+
+    engine.update_config(models.AutoTraderConfigRequest(
+        enabled=True, broker="questrade", symbols=["AAPL"], min_confidence=50, max_position_value=1000,
+        confirmed_real_money=False, questrade_refresh_token="refresh-1", questrade_account_number="12345678",
+    ))
+    entries = engine.run_once()
+    assert entries[0]["executed"] is False
+    assert "DRY RUN" in entries[0]["reason"]
 
 
 def test_run_once_respects_daily_trade_limit(engine, monkeypatch):

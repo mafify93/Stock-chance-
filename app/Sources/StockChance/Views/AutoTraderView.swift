@@ -1,18 +1,22 @@
 import SwiftUI
 
 /// Configuration screen for the AI Auto-Trader: lets the user choose which
-/// symbols to watch, how confident the combined AI signal must be before
-/// acting, position sizing limits, and - with explicit double confirmation -
-/// whether it's allowed to place REAL orders with REAL money via Alpaca.
+/// broker (Alpaca or Questrade) and symbols to watch, how confident the
+/// combined AI signal must be before acting, position sizing limits, and -
+/// with explicit double confirmation - whether it's allowed to place REAL
+/// orders with REAL money.
 ///
-/// Disabled by default. Live (real-money) orders additionally require
+/// Disabled by default. Real-money orders additionally require
 /// `confirmedRealMoney`, mirroring the "Enable Live Trading" pattern in
-/// Settings.
+/// Settings. Questrade has no paper-trading mode, so it always requires this
+/// confirmation; Alpaca only requires it when `environment == "live"`.
 struct AutoTraderView: View {
     @EnvironmentObject private var apiConfig: APIConfig
+    @EnvironmentObject private var brokerStore: BrokerStore
     @StateObject private var viewModel = AutoTraderViewModel()
 
     @State private var enabled = false
+    @State private var broker = "alpaca" // "alpaca" | "questrade"
     @State private var symbolsText = ""
     @State private var minConfidence: Double = 70
     @State private var maxPositionValueText = "100"
@@ -22,6 +26,8 @@ struct AutoTraderView: View {
     @State private var confirmedRealMoney = false
     @State private var alpacaApiKeyId = ""
     @State private var alpacaApiSecretKey = ""
+    @State private var questradeRefreshToken = ""
+    @State private var questradeAccountNumber = ""
 
     @State private var hasLoadedConfig = false
     @State private var showEnableConfirmation = false
@@ -32,6 +38,7 @@ struct AutoTraderView: View {
         NavigationStack {
             Form {
                 statusSection
+                brokerSection
                 symbolsSection
                 strategySection
                 environmentSection
@@ -83,7 +90,7 @@ struct AutoTraderView: View {
         } header: {
             Text("AI Auto-Trader")
         } footer: {
-            Text("When enabled, Stock Chance evaluates your symbols below on a schedule during market hours, combining the technical signal, ML model, and AI analyst into one decision - and can place orders through Alpaca automatically, with no per-trade confirmation.")
+            Text("When enabled, Stock Chance evaluates your symbols below on a schedule during market hours, combining the technical signal, ML model, and AI analyst into one decision - and can place orders through your selected broker automatically, with no per-trade confirmation.")
         }
         .alert("Enable AI Auto-Trader?", isPresented: $showEnableConfirmation) {
             Button("Cancel", role: .cancel) {}
@@ -92,6 +99,24 @@ struct AutoTraderView: View {
             }
         } message: {
             Text("The AI Auto-Trader will automatically evaluate your chosen symbols and place buy/sell orders based on its own analysis, with no further confirmation from you. Double-check your symbols, position size, and environment below before enabling.")
+        }
+    }
+
+    private var brokerSection: some View {
+        Section {
+            Picker("Broker", selection: $broker) {
+                Text("Alpaca").tag("alpaca")
+                Text("Questrade").tag("questrade")
+            }
+            .pickerStyle(.segmented)
+        } header: {
+            Text("Broker")
+        } footer: {
+            if broker == "questrade" {
+                Text("Questrade (Canadian brokerage) has no paper-trading mode - the auto-trader always acts on your real account, gated by Confirm Real-Money Trading below.")
+            } else {
+                Text("Alpaca supports a simulated paper account, so you can test the auto-trader risk-free before switching to live.")
+            }
         }
     }
 
@@ -136,15 +161,24 @@ struct AutoTraderView: View {
         }
     }
 
+    /// Whether the configured combination requires the real-money
+    /// confirmation: Questrade always (no paper mode), Alpaca only when
+    /// `environment == "live"`.
+    private var isLiveSelection: Bool {
+        broker == "questrade" || environmentSelection == "live"
+    }
+
     private var environmentSection: some View {
         Section {
-            Picker("Environment", selection: $environmentSelection) {
-                Text("Paper (Simulated)").tag("paper")
-                Text("Live (Real Money)").tag("live")
+            if broker == "alpaca" {
+                Picker("Environment", selection: $environmentSelection) {
+                    Text("Paper (Simulated)").tag("paper")
+                    Text("Live (Real Money)").tag("live")
+                }
+                .pickerStyle(.segmented)
             }
-            .pickerStyle(.segmented)
 
-            if environmentSelection == "live" {
+            if isLiveSelection {
                 Toggle("Confirm Real-Money Trading", isOn: Binding(
                     get: { confirmedRealMoney },
                     set: { newValue in
@@ -160,10 +194,10 @@ struct AutoTraderView: View {
         } header: {
             Text("Environment")
         } footer: {
-            if environmentSelection == "live" && !confirmedRealMoney {
+            if isLiveSelection && !confirmedRealMoney {
                 Text("Live decisions will be logged as DRY RUN (not executed) until you confirm real-money trading.")
-            } else if environmentSelection == "live" {
-                Text("REAL orders will be placed with REAL money in your Alpaca live account.")
+            } else if isLiveSelection {
+                Text("REAL orders will be placed with REAL money in your \(broker == "questrade" ? "Questrade" : "Alpaca live") account.")
             } else {
                 Text("Orders are placed in your Alpaca paper (simulated) account - no real money at risk.")
             }
@@ -174,31 +208,57 @@ struct AutoTraderView: View {
                 confirmedRealMoney = true
             }
         } message: {
-            Text("The AI Auto-Trader will place REAL orders with REAL money in your Alpaca live account, fully autonomously, with no per-trade confirmation. Stock Chance's signals - including the ML model and AI analyst - are educational technical analysis, not financial advice, and are not guaranteed to be profitable. You could lose money. Only continue if you understand and accept this risk.")
+            Text("The AI Auto-Trader will place REAL orders with REAL money in your \(broker == "questrade" ? "Questrade" : "Alpaca live") account, fully autonomously, with no per-trade confirmation. Stock Chance's signals - including the ML model and AI analyst - are educational technical analysis, not financial advice, and are not guaranteed to be profitable. You could lose money. Only continue if you understand and accept this risk.")
         }
     }
 
+    @ViewBuilder
     private var credentialsSection: some View {
-        Section {
-            SecureField("Alpaca API Key ID", text: $alpacaApiKeyId)
-                #if os(iOS)
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
-                #endif
-            SecureField("Alpaca API Secret Key", text: $alpacaApiSecretKey)
-                #if os(iOS)
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
-                #endif
-            if viewModel.status?.config.alpacaConfigured == true {
-                Text("✅ Alpaca credentials are configured on the backend.")
-                    .font(.caption)
-                    .foregroundStyle(Theme.profit)
+        if broker == "questrade" {
+            Section {
+                SecureField("Questrade Refresh Token", text: $questradeRefreshToken)
+                    #if os(iOS)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    #endif
+                TextField("Questrade Account Number", text: $questradeAccountNumber)
+                    #if os(iOS)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .keyboardType(.numberPad)
+                    #endif
+                if viewModel.status?.config.questradeConfigured == true {
+                    Text("✅ Questrade credentials are configured on the backend.")
+                        .font(.caption)
+                        .foregroundStyle(Theme.profit)
+                }
+            } header: {
+                Text("Questrade Credentials")
+            } footer: {
+                Text("Generate a personal refresh token from Questrade's App Hub (questrade.com -> My Apps -> Personal apps) - this must be a fresh token, separate from the one used for manual trading in Settings, since Questrade tokens are single-use. Stock Chance refreshes and persists the rotated token on the backend automatically. Leave the token blank to keep the previously saved one unchanged.")
             }
-        } header: {
-            Text("Alpaca Credentials")
-        } footer: {
-            Text("Stored on the backend (not just this device) so the auto-trader can act while the app is closed. Leave blank to keep previously saved credentials. Use keys matching the environment selected above (paper or live).")
+        } else {
+            Section {
+                SecureField("Alpaca API Key ID", text: $alpacaApiKeyId)
+                    #if os(iOS)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    #endif
+                SecureField("Alpaca API Secret Key", text: $alpacaApiSecretKey)
+                    #if os(iOS)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    #endif
+                if viewModel.status?.config.alpacaConfigured == true {
+                    Text("✅ Alpaca credentials are configured on the backend.")
+                        .font(.caption)
+                        .foregroundStyle(Theme.profit)
+                }
+            } header: {
+                Text("Alpaca Credentials")
+            } footer: {
+                Text("Stored on the backend (not just this device) so the auto-trader can act while the app is closed. Leave blank to keep previously saved credentials. Use keys matching the environment selected above (paper or live).")
+            }
         }
     }
 
@@ -290,6 +350,7 @@ struct AutoTraderView: View {
 
     private func apply(_ config: AutoTraderConfig) {
         enabled = config.enabled
+        broker = config.broker
         symbolsText = config.symbols.joined(separator: ", ")
         minConfidence = config.minConfidence
         maxPositionValueText = String(format: "%.2f", config.maxPositionValue)
@@ -297,6 +358,9 @@ struct AutoTraderView: View {
         pollIntervalMinutes = config.pollIntervalMinutes
         environmentSelection = config.environment
         confirmedRealMoney = config.confirmedRealMoney
+        if questradeAccountNumber.isEmpty && !brokerStore.questradeAccountNumber.isEmpty {
+            questradeAccountNumber = brokerStore.questradeAccountNumber
+        }
     }
 
     private func buildRequest() -> AutoTraderConfigRequest {
@@ -307,6 +371,7 @@ struct AutoTraderView: View {
 
         return AutoTraderConfigRequest(
             enabled: enabled,
+            broker: broker,
             symbols: symbols,
             minConfidence: minConfidence,
             maxPositionValue: Double(maxPositionValueText) ?? 100,
@@ -315,7 +380,9 @@ struct AutoTraderView: View {
             environment: environmentSelection,
             confirmedRealMoney: confirmedRealMoney,
             alpacaApiKeyId: alpacaApiKeyId.isEmpty ? nil : alpacaApiKeyId,
-            alpacaApiSecretKey: alpacaApiSecretKey.isEmpty ? nil : alpacaApiSecretKey
+            alpacaApiSecretKey: alpacaApiSecretKey.isEmpty ? nil : alpacaApiSecretKey,
+            questradeRefreshToken: questradeRefreshToken.isEmpty ? nil : questradeRefreshToken,
+            questradeAccountNumber: questradeAccountNumber.isEmpty ? nil : questradeAccountNumber
         )
     }
 
@@ -327,6 +394,7 @@ struct AutoTraderView: View {
             saveMessage = "✅ Saved"
             alpacaApiKeyId = ""
             alpacaApiSecretKey = ""
+            questradeRefreshToken = ""
         }
     }
 

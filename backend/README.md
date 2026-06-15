@@ -25,10 +25,11 @@ app. It provides:
   plus (optionally) an LLM "AI analyst" summary, combined with the rule-based
   signal into one `/api/ai/analysis/{symbol}` recommendation.
 - **AI Auto-Trader** - an optional background loop that re-uses the same
-  combined AI recommendation to automatically place orders through Alpaca,
-  with confidence thresholds, position-size limits, a daily trade cap, and a
-  hard "paper vs. live + explicit confirmation" gate before any real money
-  moves.
+  combined AI recommendation to automatically place orders through Alpaca or
+  Questrade, with confidence thresholds, position-size limits, a daily trade
+  cap, and a hard "paper vs. live + explicit confirmation" gate before any
+  real money moves (Questrade has no paper mode, so it always requires the
+  explicit confirmation).
 
 ## ⚠️ Important disclaimer
 
@@ -147,15 +148,20 @@ app and the trades the auto-trader makes can never disagree.
 
 `app/auto_trader.py` runs a background loop (started in `main.py`'s FastAPI
 lifespan) that, for each configured symbol, computes the combined AI
-recommendation above and can place a real order through Alpaca.
+recommendation above and can place a real order through the configured
+`broker` - either Alpaca or Questrade.
 
 **Safety model (all defaults are the safe choice):**
 
 - `enabled: false` by default - the loop does nothing until you opt in.
-- `environment: "paper"` by default. Even with `enabled: true`, placing a
-  **live** order additionally requires `confirmed_real_money: true`. If
-  `environment: "live"` but `confirmed_real_money: false`, decisions are
-  logged as `"DRY RUN"` and nothing is sent to Alpaca.
+- `broker: "alpaca"` by default. Set `broker: "questrade"` to trade through
+  Questrade instead.
+- `environment: "paper"` by default (Alpaca only - Questrade has no paper
+  mode). Even with `enabled: true`, placing a **live** Alpaca order
+  additionally requires `confirmed_real_money: true`; for Questrade,
+  `confirmed_real_money: true` is always required since every Questrade order
+  is real money. If the live/Questrade gate isn't satisfied, decisions are
+  logged as `"DRY RUN"` and nothing is sent to the broker.
 - `min_confidence` (default 70%) - only acts when the combined confidence
   meets this bar; otherwise it's logged as a HOLD/skip with a reason.
 - `max_position_value` (default $100) caps the dollar amount of any single
@@ -170,16 +176,19 @@ recommendation above and can place a real order through Alpaca.
 
 **⚠️ Credential storage deviation:** unlike the rest of this API (which never
 stores brokerage credentials and expects them per-request from the app), the
-auto-trader **must** persist your Alpaca API keys server-side
-(`backend/data/auto_trader_config.json`, file permissions `0600`) so it can
-keep trading while the app is closed. That entire directory is gitignored.
+auto-trader **must** persist credentials server-side in
+`backend/data/auto_trader_config.json` (file permissions `0600`) so it can
+keep trading while the app is closed - either your Alpaca API keys, or a
+Questrade refresh token + account number. Questrade refresh tokens are
+single-use and rotate on every exchange; the rotated token is written back to
+this file automatically after each run. That entire directory is gitignored.
 Only run this backend on a machine you trust, and validate with Alpaca
-**paper** credentials before ever switching `environment` to `"live"` and
-confirming real-money trading.
+**paper** credentials (or Questrade with `confirmed_real_money: false`, which
+dry-runs) before ever enabling real-money trading.
 
-Configure it via `POST /api/ai/auto-trader/config` (or the "AI Auto-Trader"
-screen in Settings in the app), and use `POST /api/ai/auto-trader/run-now` to
-trigger one evaluation immediately for testing.
+Configure it via `POST /api/ai/auto-trader/config` (or the "Auto Trade" tab in
+the app), and use `POST /api/ai/auto-trader/run-now` to trigger one evaluation
+immediately for testing.
 
 ## Tonight's Picks (nightly deep-research scan)
 
