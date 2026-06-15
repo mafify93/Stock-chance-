@@ -1,13 +1,13 @@
 import Foundation
 
 enum APIError: LocalizedError {
-    case server(String)
+    case server(status: Int, message: String)
     case decoding(Error)
     case transport(Error)
 
     var errorDescription: String? {
         switch self {
-        case .server(let message): return message
+        case .server(_, let message): return message
         case .decoding(let error): return "Failed to decode response: \(error.localizedDescription)"
         case .transport(let error): return error.localizedDescription
         }
@@ -36,7 +36,7 @@ struct APIClient {
             components.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
         }
         guard let url = components.url else {
-            throw APIError.server("Invalid URL")
+            throw APIError.server(status: 0, message: "Invalid URL")
         }
 
         var request = URLRequest(url: url)
@@ -57,7 +57,7 @@ struct APIClient {
 
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             let message = String(data: data, encoding: .utf8) ?? "HTTP \(http.statusCode)"
-            throw APIError.server(message)
+            throw APIError.server(status: http.statusCode, message: message)
         }
 
         do {
@@ -94,7 +94,7 @@ struct APIClient {
 
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             let message = String(data: data, encoding: .utf8) ?? "HTTP \(http.statusCode)"
-            throw APIError.server(message)
+            throw APIError.server(status: http.statusCode, message: message)
         }
 
         do {

@@ -187,4 +187,22 @@ final class BrokerStore: ObservableObject {
         questradeRefreshToken = response.refreshToken
         questradeAccessTokenExpiry = Date().addingTimeInterval(TimeInterval(response.expiresIn))
     }
+
+    /// Runs a Questrade API call, refreshing the access token first if it's
+    /// past our locally-tracked expiry, and retrying once more after a fresh
+    /// refresh if Questrade still rejects it as invalid. Questrade access
+    /// tokens can be invalidated earlier than our local expiry estimate
+    /// (e.g. a separate connection, such as the Auto-Trader, rotating the
+    /// token first), so this makes broker requests resilient to that.
+    func questradeRequest<T>(client: APIClient, _ operation: (QuestradeCredentials) async throws -> T) async throws -> T {
+        if isQuestradeAccessTokenExpired {
+            try await refreshQuestradeToken(client: client)
+        }
+        do {
+            return try await operation(questradeCredentials)
+        } catch APIError.server(401, _) {
+            try await refreshQuestradeToken(client: client)
+            return try await operation(questradeCredentials)
+        }
+    }
 }

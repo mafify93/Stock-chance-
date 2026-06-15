@@ -146,10 +146,9 @@ struct BrokerOrderSheet: View {
                 JournalStore.shared.log(symbol: symbol, side: side, quantity: quantity, price: placed.filledAvgPrice ?? suggestedPrice ?? 0, source: "live-alpaca")
 
             case .questrade(let accountNumber):
-                if brokerStore.isQuestradeAccessTokenExpired {
-                    try await brokerStore.refreshQuestradeToken(client: client)
+                let matches = try await brokerStore.questradeRequest(client: client) {
+                    try await client.questradeSymbols(symbol, credentials: $0)
                 }
-                let matches = try await client.questradeSymbols(symbol, credentials: brokerStore.questradeCredentials)
                 guard let match = matches.first(where: { $0.symbol.uppercased() == symbol.uppercased() }) else {
                     didSucceed = false
                     resultMessage = "❌ Couldn't find \(symbol) on Questrade."
@@ -162,7 +161,9 @@ struct BrokerOrderSheet: View {
                     quantity: quantity,
                     side: side == "buy" ? "Buy" : "Sell"
                 )
-                let placed = try await client.placeQuestradeOrder(order, credentials: brokerStore.questradeCredentials)
+                let placed = try await brokerStore.questradeRequest(client: client) {
+                    try await client.placeQuestradeOrder(order, credentials: $0)
+                }
                 didSucceed = true
                 resultMessage = "✅ LIVE order submitted (status: \(placed.state ?? "accepted")). View it in your Questrade account."
                 JournalStore.shared.log(symbol: symbol, side: side, quantity: quantity, price: placed.avgExecPrice ?? suggestedPrice ?? 0, source: "questrade")

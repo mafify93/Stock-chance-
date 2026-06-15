@@ -24,7 +24,7 @@ final class WatchStreamService: NSObject {
             var components = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
             components.queryItems = [URLQueryItem(name: "symbols", value: symbols.joined(separator: ","))]
             guard let url = components.url else {
-                continuation.finish(throwing: APIError.server("Invalid WebSocket URL"))
+                continuation.finish(throwing: APIError.server(status: 0, message: "Invalid WebSocket URL"))
                 return
             }
 

@@ -51,12 +51,12 @@ final class PortfolioViewModel: ObservableObject {
                     results.append(try await summary(for: account, credentials: brokerStore.liveCredentials, client: client))
 
                 case .questrade(let accountNumber):
-                    if brokerStore.isQuestradeAccessTokenExpired {
-                        try await brokerStore.refreshQuestradeToken(client: client)
+                    let balances = try await brokerStore.questradeRequest(client: client) {
+                        try await client.questradeBalances(accountNumber: accountNumber, credentials: $0)
                     }
-                    let credentials = brokerStore.questradeCredentials
-                    let balances = try await client.questradeBalances(accountNumber: accountNumber, credentials: credentials)
-                    let positions = try await client.questradePositions(accountNumber: accountNumber, credentials: credentials)
+                    let positions = try await brokerStore.questradeRequest(client: client) {
+                        try await client.questradePositions(accountNumber: accountNumber, credentials: $0)
+                    }
                     results.append(AccountSummary(
                         account: account,
                         equity: balances.totalEquity,
