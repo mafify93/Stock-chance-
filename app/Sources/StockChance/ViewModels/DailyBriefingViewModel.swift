@@ -10,6 +10,9 @@ final class DailyBriefingViewModel: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
 
+    private static let cacheKey = "dailyBriefing.cache"
+    private static let cacheDateKey = "dailyBriefing.date"
+
     func checkAvailability(baseURL: URL) async {
         let client = APIClient(baseURL: baseURL)
         do {
@@ -18,6 +21,19 @@ final class DailyBriefingViewModel: ObservableObject {
         } catch {
             isAvailable = nil
         }
+    }
+
+    /// Returns true if we have a cached briefing from today, so the caller
+    /// can skip the API call on app relaunch.
+    func loadCached() -> Bool {
+        let today = Calendar.current.startOfDay(for: Date()).timeIntervalSince1970
+        guard
+            let raw = UserDefaults.standard.data(forKey: Self.cacheKey),
+            let cached = try? APIClient.decoder.decode(DailyBriefingResponse.self, from: raw),
+            UserDefaults.standard.double(forKey: Self.cacheDateKey) == today
+        else { return false }
+        briefing = cached
+        return true
     }
 
     func load(baseURL: URL, positions: [Position], watchlist: [String]) async {
@@ -32,7 +48,13 @@ final class DailyBriefingViewModel: ObservableObject {
 
         let client = APIClient(baseURL: baseURL)
         do {
-            briefing = try await client.dailyBriefing(request)
+            let result = try await client.dailyBriefing(request)
+            briefing = result
+            if let data = try? APIClient.encoder.encode(result) {
+                let today = Calendar.current.startOfDay(for: Date()).timeIntervalSince1970
+                UserDefaults.standard.set(data, forKey: Self.cacheKey)
+                UserDefaults.standard.set(today, forKey: Self.cacheDateKey)
+            }
         } catch {
             errorMessage = AutoTraderViewModel.friendlyMessage(for: error)
         }

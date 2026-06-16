@@ -54,11 +54,12 @@ struct TodayView: View {
                     await nightScanViewModel.load(baseURL: apiConfig.baseURL)
                 }
                 .task {
-                    // Computed once per session (not on the 60s refresh
-                    // below) to keep AI calls bounded - pull-to-refresh
-                    // (the toolbar Refresh button) re-loads it on demand.
+                    // Load today's briefing at most once per calendar day.
+                    // A cached copy from earlier today skips the API call
+                    // entirely, so reopening the app doesn't cost anything.
+                    // The toolbar Refresh button bypasses the cache on demand.
                     await briefingViewModel.checkAvailability(baseURL: apiConfig.baseURL)
-                    if briefingViewModel.isAvailable == true {
+                    if briefingViewModel.isAvailable == true && !briefingViewModel.loadCached() {
                         await briefingViewModel.load(baseURL: apiConfig.baseURL, positions: positionStore.positions, watchlist: watchlistStore.symbols)
                     }
                 }
