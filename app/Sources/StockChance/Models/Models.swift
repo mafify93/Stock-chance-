@@ -214,7 +214,7 @@ struct AutoTraderConfigRequest: Encodable {
     var useEarningsSentiment: Bool = false
 }
 
-struct AutoTraderConfig: Codable, Hashable {
+struct AutoTraderConfig: Hashable {
     var enabled: Bool
     var broker: String // "alpaca" | "questrade"
     var symbols: [String]
@@ -229,13 +229,49 @@ struct AutoTraderConfig: Codable, Hashable {
     var confirmedRealMoney: Bool
     var alpacaConfigured: Bool
     var questradeConfigured: Bool
-    var useIntradaySignals: Bool = true
-    var stopLossPct: Double = 1.5
-    var trailingStopPct: Double = 1.0
-    var maxDailyLossPct: Double = 5.0
-    var requireMultiTimeframe: Bool = false
-    var useInsiderSignal: Bool = true
-    var useEarningsSentiment: Bool = false
+    var useIntradaySignals: Bool
+    var stopLossPct: Double
+    var trailingStopPct: Double
+    var maxDailyLossPct: Double
+    var requireMultiTimeframe: Bool
+    var useInsiderSignal: Bool
+    var useEarningsSentiment: Bool
+}
+
+extension AutoTraderConfig: Codable {
+    enum CodingKeys: String, CodingKey {
+        case enabled, broker, symbols, autoSelect, autoSelectCount, maxOpenPositions
+        case minConfidence, maxPositionValue, maxDailyTrades, pollIntervalMinutes
+        case environment, confirmedRealMoney, alpacaConfigured, questradeConfigured
+        case useIntradaySignals, stopLossPct, trailingStopPct, maxDailyLossPct
+        case requireMultiTimeframe, useInsiderSignal, useEarningsSentiment
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.decode(Bool.self, forKey: .enabled)
+        broker = try c.decode(String.self, forKey: .broker)
+        symbols = try c.decode([String].self, forKey: .symbols)
+        autoSelect = try c.decode(Bool.self, forKey: .autoSelect)
+        autoSelectCount = try c.decode(Int.self, forKey: .autoSelectCount)
+        maxOpenPositions = try c.decode(Int.self, forKey: .maxOpenPositions)
+        minConfidence = try c.decode(Double.self, forKey: .minConfidence)
+        maxPositionValue = try c.decode(Double.self, forKey: .maxPositionValue)
+        maxDailyTrades = try c.decode(Int.self, forKey: .maxDailyTrades)
+        pollIntervalMinutes = try c.decode(Int.self, forKey: .pollIntervalMinutes)
+        environment = try c.decode(String.self, forKey: .environment)
+        confirmedRealMoney = try c.decode(Bool.self, forKey: .confirmedRealMoney)
+        alpacaConfigured = try c.decode(Bool.self, forKey: .alpacaConfigured)
+        questradeConfigured = try c.decode(Bool.self, forKey: .questradeConfigured)
+        // New fields — fall back to safe defaults when talking to an older backend
+        useIntradaySignals = try c.decodeIfPresent(Bool.self, forKey: .useIntradaySignals) ?? true
+        stopLossPct = try c.decodeIfPresent(Double.self, forKey: .stopLossPct) ?? 1.5
+        trailingStopPct = try c.decodeIfPresent(Double.self, forKey: .trailingStopPct) ?? 1.0
+        maxDailyLossPct = try c.decodeIfPresent(Double.self, forKey: .maxDailyLossPct) ?? 5.0
+        requireMultiTimeframe = try c.decodeIfPresent(Bool.self, forKey: .requireMultiTimeframe) ?? false
+        useInsiderSignal = try c.decodeIfPresent(Bool.self, forKey: .useInsiderSignal) ?? true
+        useEarningsSentiment = try c.decodeIfPresent(Bool.self, forKey: .useEarningsSentiment) ?? false
+    }
 }
 
 /// One evaluation result from the auto-trader - a HOLD, a skipped trade with
