@@ -10,6 +10,7 @@ from .night_scan import night_scan
 from .routers import (
     ai,
     ai_chat,
+    analytics as analytics_router,
     auto_trader as auto_trader_router,
     backtest,
     broker,
@@ -65,6 +66,7 @@ app.include_router(auto_trader_router.router)
 app.include_router(night_scan_router.router)
 app.include_router(daily_briefing_router.router)
 app.include_router(ws.router)
+app.include_router(analytics_router.router)
 
 
 @app.get("/")

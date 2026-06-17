@@ -9,6 +9,7 @@ prediction is an enhancement, not a requirement.
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -18,7 +19,10 @@ from .features import build_feature_frame
 
 logger = logging.getLogger(__name__)
 
-MODEL_PATH = Path(__file__).resolve().parent / "model.joblib"
+_data_dir = os.environ.get("PERSISTENT_DATA_DIR")
+_persistent_path = Path(_data_dir) / "model.joblib" if _data_dir else None
+_default_path = Path(__file__).resolve().parent / "model.joblib"
+MODEL_PATH = _persistent_path if (_persistent_path and _persistent_path.exists()) else _default_path
 
 
 def _score_to_action(score: float) -> str:

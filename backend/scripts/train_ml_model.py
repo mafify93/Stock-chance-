@@ -21,6 +21,7 @@ numbers from public daily OHLCV data alone.
 """
 from __future__ import annotations
 
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -40,7 +41,8 @@ from app.universe import DEFAULT_UNIVERSE  # noqa: E402
 HORIZON_DAYS = 5
 HISTORY_PERIOD = "5y"
 MIN_ROWS = 250
-MODEL_PATH = Path(__file__).resolve().parents[1] / "app" / "ml" / "model.joblib"
+_data_dir = os.environ.get("PERSISTENT_DATA_DIR")
+MODEL_PATH = Path(_data_dir) / "model.joblib" if _data_dir else Path(__file__).resolve().parents[1] / "app" / "ml" / "model.joblib"
 
 
 def build_dataset(symbols: list[str]) -> pd.DataFrame:

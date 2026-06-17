@@ -112,3 +112,63 @@ def place_order(
         "secondaryRoute": "AUTO",
     }
     return _request("POST", api_server, f"/v1/accounts/{account_number}/orders", access_token, json=payload)
+
+
+def place_stop_limit_order(
+    access_token: str,
+    api_server: str,
+    account_number: str,
+    symbol_id: int,
+    quantity: float,
+    side: str,
+    stop_price: float,
+    limit_price: float,
+) -> dict:
+    """Submit a GoodTillCanceled stop-limit order. Typically used to place a
+    protective stop-loss after a BUY is filled. `side` must be "Buy" or "Sell"."""
+    payload = {
+        "symbolId": symbol_id,
+        "quantity": quantity,
+        "icebergQuantity": None,
+        "limitPrice": limit_price,
+        "stopPrice": stop_price,
+        "isAllOrNone": False,
+        "isAnonymous": False,
+        "orderType": "StopLimit",
+        "timeInForce": "GoodTillCanceled",
+        "action": side,
+        "primaryRoute": "AUTO",
+        "secondaryRoute": "AUTO",
+    }
+    return _request("POST", api_server, f"/v1/accounts/{account_number}/orders", access_token, json=payload)
+
+
+def cancel_order(
+    access_token: str,
+    api_server: str,
+    account_number: str,
+    order_id: str,
+) -> dict:
+    """Cancel an existing order by its ID."""
+    return _request("DELETE", api_server, f"/v1/accounts/{account_number}/orders/{order_id}", access_token)
+
+
+def get_account_equity(
+    access_token: str,
+    api_server: str,
+    account_number: str,
+) -> float | None:
+    """Return the total equity for the account, or None if unavailable."""
+    try:
+        data = get_balances(access_token, api_server, account_number)
+        # Questrade returns combinedBalances as a list; find CAD or USD total
+        combined = data.get("combinedBalances", [])
+        for bal in combined:
+            if bal.get("currency") == "USD":
+                return float(bal.get("totalEquity", 0))
+        # Fallback: first entry
+        if combined:
+            return float(combined[0].get("totalEquity", 0))
+    except Exception:  # noqa: BLE001
+        return None
+    return None

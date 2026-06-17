@@ -415,6 +415,9 @@ class AutoTraderConfigRequest(BaseModel):
     alpaca_api_secret_key: str | None = None
     questrade_refresh_token: str | None = None
     questrade_account_number: str | None = None
+    stop_loss_pct: float = 3.0
+    max_daily_loss_pct: float = 5.0
+    require_multi_timeframe: bool = False
 
 
 class AutoTraderConfig(BaseModel):
@@ -432,6 +435,9 @@ class AutoTraderConfig(BaseModel):
     confirmed_real_money: bool
     alpaca_configured: bool
     questrade_configured: bool
+    stop_loss_pct: float = 3.0
+    max_daily_loss_pct: float = 5.0
+    require_multi_timeframe: bool = False
 
 
 class AutoTraderDecision(BaseModel):
@@ -543,3 +549,30 @@ class DailyBriefingResponse(BaseModel):
         "watchlist, produced with live web search - speculative, "
         "research-based commentary, not financial advice."
     )
+
+
+# --- Analytics Dashboard ------------------------------------------------------
+
+
+class DailyPerf(BaseModel):
+    date: str
+    trades: int
+    pnl: float
+    wins: int
+    losses: int
+
+
+class AnalyticsResponse(BaseModel):
+    total_trades: int
+    buys: int
+    sells: int
+    wins: int
+    losses: int
+    win_rate: float
+    total_pnl: float
+    avg_win: float
+    avg_loss: float
+    largest_win: float
+    largest_loss: float
+    daily: list[DailyPerf]
+    period_days: int

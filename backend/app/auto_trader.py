@@ -48,7 +48,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
 
-from . import ai_analyst, models
+from . import ai_analyst, models, notifications
 from .ai_combine import combine
 from .intraday import get_market_session
 from .ml.model import ml_predictor
@@ -86,6 +86,13 @@ _DEFAULT_CONFIG = {
     "alpaca_api_secret_key": None,
     "questrade_refresh_token": None,
     "questrade_account_number": None,
+    # Phase 2: Risk management
+    "stop_loss_pct": 3.0,
+    "max_daily_loss_pct": 5.0,
+    "require_multi_timeframe": False,
+    "stop_orders": {},  # {symbol: order_id_string} — active stop-loss order IDs
+    "circuit_breaker_date": None,  # ISO date string of last circuit-breaker check
+    "circuit_breaker_start_equity": None,  # float equity at start of that trading day
 }
 
 
@@ -127,23 +134,53 @@ class _QuestradeSession(_BrokerSession):
         positions = questrade.get_positions(self._access_token, self._api_server, self._account_number)
         return {p["symbol"]: {"symbol": p["symbol"], "qty": p["openQuantity"]} for p in positions}
 
-    def place_order(self, symbol: str, qty: float, side: str) -> dict:
+    def _get_symbol_id(self, symbol: str) -> int:
         matches = questrade.search_symbols(self._access_token, self._api_server, symbol)
         match = next((s for s in matches if s.get("symbol") == symbol), None)
         if match is None:
             raise questrade.QuestradeError(404, f"Could not find a Questrade symbolId for {symbol}")
+        return match["symbolId"]
 
+    def place_order(self, symbol: str, qty: float, side: str) -> dict:
+        symbol_id = self._get_symbol_id(symbol)
         order_side = "Buy" if side == "buy" else "Sell"
         data = questrade.place_order(
             self._access_token,
             self._api_server,
             self._account_number,
-            match["symbolId"],
+            symbol_id,
             qty,
             order_side,
         )
         placed = (data.get("orders") or [{}])[0]
         return {"id": placed.get("id", "")}
+
+    def place_stop_limit_order(self, symbol: str, qty: float, stop_price: float, limit_price: float) -> dict:
+        """Place a GoodTillCanceled stop-limit SELL order for risk management."""
+        symbol_id = self._get_symbol_id(symbol)
+        data = questrade.place_stop_limit_order(
+            self._access_token,
+            self._api_server,
+            self._account_number,
+            symbol_id,
+            qty,
+            "Sell",
+            stop_price,
+            limit_price,
+        )
+        placed = (data.get("orders") or [{}])[0]
+        return {"id": placed.get("id", "")}
+
+    def cancel_order(self, order_id: str) -> None:
+        """Cancel an open order (e.g. a stop-loss) by order ID."""
+        try:
+            questrade.cancel_order(self._access_token, self._api_server, self._account_number, order_id)
+        except questrade.QuestradeError:
+            logger.exception("Failed to cancel Questrade order %s", order_id)
+
+    def get_equity(self) -> float | None:
+        """Return total account equity, or None if unavailable."""
+        return questrade.get_account_equity(self._access_token, self._api_server, self._account_number)
 
 
 class AutoTraderEngine:
@@ -214,6 +251,9 @@ class AutoTraderEngine:
                 confirmed_real_money=c["confirmed_real_money"],
                 alpaca_configured=bool(c.get("alpaca_api_key_id") and c.get("alpaca_api_secret_key")),
                 questrade_configured=bool(c.get("questrade_refresh_token") and c.get("questrade_account_number")),
+                stop_loss_pct=c.get("stop_loss_pct", 3.0),
+                max_daily_loss_pct=c.get("max_daily_loss_pct", 5.0),
+                require_multi_timeframe=c.get("require_multi_timeframe", False),
             )
 
     def update_config(self, req: models.AutoTraderConfigRequest) -> models.AutoTraderConfig:
@@ -244,6 +284,9 @@ class AutoTraderEngine:
                 self._config["questrade_refresh_token"] = req.questrade_refresh_token
             if req.questrade_account_number:
                 self._config["questrade_account_number"] = req.questrade_account_number
+            self._config["stop_loss_pct"] = max(0.0, req.stop_loss_pct)
+            self._config["max_daily_loss_pct"] = max(0.0, req.max_daily_loss_pct)
+            self._config["require_multi_timeframe"] = req.require_multi_timeframe
             self._save_config()
         return self.get_config()
 
@@ -273,6 +316,7 @@ class AutoTraderEngine:
             "executed": decision["executed"],
             "reason": decision["reason"],
             "order_id": decision.get("order_id"),
+            "entry_price": decision.get("entry_price"),
         }
         with self._lock:
             self._log.append(entry)
