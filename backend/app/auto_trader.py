@@ -48,11 +48,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
 
-from . import ai_analyst, models, notifications
+from . import ai_analyst, earnings_sentiment, models, notifications
 from .ai_combine import combine
 from .intraday import get_market_session
 from .ml.model import ml_predictor
-from .providers import alpaca, questrade, yahoo
+from .providers import alpaca, questrade, sec_edgar, yahoo
 from .signals import analyze
 from .universe import DEFAULT_UNIVERSE
 
@@ -90,6 +90,9 @@ _DEFAULT_CONFIG = {
     "stop_loss_pct": 3.0,
     "max_daily_loss_pct": 5.0,
     "require_multi_timeframe": False,
+    # Signal-quality factors
+    "use_insider_signal": True,  # SEC Form 4 insider trading (free)
+    "use_earnings_sentiment": False,  # Claude web-search earnings sentiment (costs API calls)
     "stop_orders": {},  # {symbol: order_id_string} — active stop-loss order IDs
     "circuit_breaker_date": None,  # ISO date string of last circuit-breaker check
     "circuit_breaker_start_equity": None,  # float equity at start of that trading day
@@ -255,6 +258,8 @@ class AutoTraderEngine:
                 stop_loss_pct=c.get("stop_loss_pct", 3.0),
                 max_daily_loss_pct=c.get("max_daily_loss_pct", 5.0),
                 require_multi_timeframe=c.get("require_multi_timeframe", False),
+                use_insider_signal=c.get("use_insider_signal", True),
+                use_earnings_sentiment=c.get("use_earnings_sentiment", False),
             )
 
     def update_config(self, req: models.AutoTraderConfigRequest) -> models.AutoTraderConfig:
@@ -288,6 +293,8 @@ class AutoTraderEngine:
             self._config["stop_loss_pct"] = max(0.0, req.stop_loss_pct)
             self._config["max_daily_loss_pct"] = max(0.0, req.max_daily_loss_pct)
             self._config["require_multi_timeframe"] = req.require_multi_timeframe
+            self._config["use_insider_signal"] = req.use_insider_signal
+            self._config["use_earnings_sentiment"] = req.use_earnings_sentiment
             self._save_config()
         return self.get_config()
 
@@ -507,7 +514,15 @@ class AutoTraderEngine:
         }
         ml_result = ml_predictor.predict(df)
         llm_result = ai_analyst.analyze(symbol, signal_dict, ml_result) if ai_analyst.configured() else None
-        action, confidence = combine(signal_dict, ml_result, llm_result)
+        # Auxiliary factors - only run on the shortlist here, never in the
+        # cheap universe-wide first pass (`_select_symbols`).
+        insider_result = sec_edgar.get_insider_signal(symbol) if config.get("use_insider_signal") else None
+        sentiment_result = (
+            earnings_sentiment.get_sentiment(symbol)
+            if config.get("use_earnings_sentiment") and earnings_sentiment.configured()
+            else None
+        )
+        action, confidence = combine(signal_dict, ml_result, llm_result, insider_result, sentiment_result)
 
         # --- Phase 4: Multi-timeframe confirmation (opt-in) ---
         if config.get("require_multi_timeframe"):

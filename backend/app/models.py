@@ -418,6 +418,8 @@ class AutoTraderConfigRequest(BaseModel):
     stop_loss_pct: float = 3.0
     max_daily_loss_pct: float = 5.0
     require_multi_timeframe: bool = False
+    use_insider_signal: bool = True
+    use_earnings_sentiment: bool = False
 
 
 class AutoTraderConfig(BaseModel):
@@ -438,6 +440,8 @@ class AutoTraderConfig(BaseModel):
     stop_loss_pct: float = 3.0
     max_daily_loss_pct: float = 5.0
     require_multi_timeframe: bool = False
+    use_insider_signal: bool = True
+    use_earnings_sentiment: bool = False
 
 
 class AutoTraderDecision(BaseModel):

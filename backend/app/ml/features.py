@@ -28,6 +28,16 @@ FEATURE_NAMES: list[str] = [
     "return_5d",
     "return_10d",
     "return_20d",
+    "return_60d",
+    "return_120d",
+    "dist_52w_high",
+    "dist_52w_low",
+    "vol_regime",
+    "volume_trend",
+    "bb_width",
+    "momentum_accel",
+    "rsi_slope",
+    "macd_hist_slope",
 ]
 
 
@@ -57,6 +67,30 @@ def build_feature_frame(data: pd.DataFrame) -> pd.DataFrame:
     out["return_5d"] = close.pct_change(5)
     out["return_10d"] = close.pct_change(10)
     out["return_20d"] = close.pct_change(20)
+
+    # Multi-factor expansion: longer-horizon momentum, 52-week position,
+    # volatility/volume regime, Bollinger width, and oscillator slopes. All
+    # self-contained (computable from this symbol's own OHLCV + indicators) so
+    # they backfill cleanly for training.
+    out["return_60d"] = close.pct_change(60)
+    out["return_120d"] = close.pct_change(120)
+
+    rolling_high = close.rolling(252, min_periods=20).max().replace(0, np.nan)
+    rolling_low = close.rolling(252, min_periods=20).min().replace(0, np.nan)
+    out["dist_52w_high"] = close / rolling_high - 1
+    out["dist_52w_low"] = close / rolling_low - 1
+
+    atr_mean = data["atr_14"].rolling(60, min_periods=10).mean().replace(0, np.nan)
+    out["vol_regime"] = data["atr_14"] / atr_mean
+
+    vol_sma_mean = data["volume_sma_20"].rolling(60, min_periods=10).mean().replace(0, np.nan)
+    out["volume_trend"] = data["volume_sma_20"] / vol_sma_mean
+
+    out["bb_width"] = (data["bb_upper"] - data["bb_lower"]) / close.replace(0, np.nan)
+
+    out["momentum_accel"] = close.pct_change(5) - close.pct_change(20)
+    out["rsi_slope"] = data["rsi_14"] - data["rsi_14"].shift(5)
+    out["macd_hist_slope"] = data["macd_hist"] - data["macd_hist"].shift(3)
 
     return out[FEATURE_NAMES]
 
