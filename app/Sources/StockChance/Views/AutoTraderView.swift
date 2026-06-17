@@ -55,6 +55,12 @@ struct AutoTraderView: View {
             }
             .navigationTitle("AI Auto-Trader")
             .luxuryBackground()
+            .refreshable {
+                await viewModel.load(baseURL: apiConfig.baseURL)
+                if let config = viewModel.status?.config {
+                    apply(config)
+                }
+            }
             .task {
                 await viewModel.load(baseURL: apiConfig.baseURL)
                 if !hasLoadedConfig, let config = viewModel.status?.config {
