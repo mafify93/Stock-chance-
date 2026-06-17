@@ -31,6 +31,9 @@ struct AutoTraderView: View {
     @State private var alpacaApiSecretKey = ""
     @State private var questradeRefreshToken = ""
     @State private var questradeAccountNumber = ""
+    @State private var useIntradaySignals = true
+    @State private var stopLossPct: Double = 1.5
+    @State private var trailingStopPct: Double = 1.0
 
     @State private var hasLoadedConfig = false
     @State private var showEnableConfirmation = false
@@ -150,6 +153,17 @@ struct AutoTraderView: View {
 
     private var strategySection: some View {
         Section {
+            Toggle(isOn: $useIntradaySignals) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("ETF Intraday Mode")
+                        .foregroundStyle(Theme.textPrimary)
+                    Text("Scans sector ETFs (XLF, XLE, XLP…) every 5 min using same-day signals. ETF buys are FREE on Questrade. Exits before market close.")
+                        .font(.caption)
+                        .foregroundStyle(Theme.textSecondary)
+                }
+            }
+            .tint(Theme.gold)
+
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text("Minimum Confidence")
@@ -169,10 +183,26 @@ struct AutoTraderView: View {
             Stepper("Max Trades / Day: \(maxDailyTrades)", value: $maxDailyTrades, in: 0...20)
             Stepper("Max Open Positions: \(maxOpenPositions)", value: $maxOpenPositions, in: 1...50)
             Stepper("Check Every \(pollIntervalMinutes) min", value: $pollIntervalMinutes, in: 5...120, step: 5)
+            HStack {
+                Text("Stop-Loss")
+                    .foregroundStyle(Theme.textPrimary)
+                Spacer()
+                Text("\(stopLossPct, specifier: "%.1f")%")
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            Slider(value: $stopLossPct, in: 0.5...10, step: 0.5)
+            HStack {
+                Text("Trailing Stop (from peak)")
+                    .foregroundStyle(Theme.textPrimary)
+                Spacer()
+                Text("\(trailingStopPct, specifier: "%.1f")%")
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            Slider(value: $trailingStopPct, in: 0.5...10, step: 0.5)
         } header: {
             Text("Strategy")
         } footer: {
-            Text("Only acts when the combined AI signal meets this confidence level. Max Position Value caps the dollar amount per buy order; Max Open Positions caps how many holdings it can run at once (your total risk ≈ Max Position Value × Max Open Positions). The auto-trader never adds to an existing position.")
+            Text("ETF Intraday Mode uses VWAP, opening-range breakout, EMA crossover & volume to time entries on affordable sector ETFs (buys free on Questrade). Trailing Stop sells once price falls that % below its highest point since you bought — locking in gains without a fixed target.")
         }
     }
 
@@ -376,6 +406,9 @@ struct AutoTraderView: View {
         pollIntervalMinutes = config.pollIntervalMinutes
         environmentSelection = config.environment
         confirmedRealMoney = config.confirmedRealMoney
+        useIntradaySignals = config.useIntradaySignals
+        stopLossPct = config.stopLossPct
+        trailingStopPct = config.trailingStopPct
         if questradeAccountNumber.isEmpty && !brokerStore.questradeAccountNumber.isEmpty {
             questradeAccountNumber = brokerStore.questradeAccountNumber
         }
@@ -403,7 +436,10 @@ struct AutoTraderView: View {
             alpacaApiKeyId: alpacaApiKeyId.isEmpty ? nil : alpacaApiKeyId,
             alpacaApiSecretKey: alpacaApiSecretKey.isEmpty ? nil : alpacaApiSecretKey,
             questradeRefreshToken: questradeRefreshToken.isEmpty ? nil : questradeRefreshToken,
-            questradeAccountNumber: questradeAccountNumber.isEmpty ? nil : questradeAccountNumber
+            questradeAccountNumber: questradeAccountNumber.isEmpty ? nil : questradeAccountNumber,
+            useIntradaySignals: useIntradaySignals,
+            stopLossPct: stopLossPct,
+            trailingStopPct: trailingStopPct
         )
     }
 

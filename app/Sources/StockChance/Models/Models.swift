@@ -205,9 +205,13 @@ struct AutoTraderConfigRequest: Encodable {
     var alpacaApiSecretKey: String?
     var questradeRefreshToken: String?
     var questradeAccountNumber: String?
-    var stopLossPct: Double = 3.0
+    var useIntradaySignals: Bool = true
+    var stopLossPct: Double = 1.5
+    var trailingStopPct: Double = 1.0
     var maxDailyLossPct: Double = 5.0
     var requireMultiTimeframe: Bool = false
+    var useInsiderSignal: Bool = true
+    var useEarningsSentiment: Bool = false
 }
 
 struct AutoTraderConfig: Codable, Hashable {
@@ -225,9 +229,13 @@ struct AutoTraderConfig: Codable, Hashable {
     var confirmedRealMoney: Bool
     var alpacaConfigured: Bool
     var questradeConfigured: Bool
-    var stopLossPct: Double = 3.0
+    var useIntradaySignals: Bool = true
+    var stopLossPct: Double = 1.5
+    var trailingStopPct: Double = 1.0
     var maxDailyLossPct: Double = 5.0
     var requireMultiTimeframe: Bool = false
+    var useInsiderSignal: Bool = true
+    var useEarningsSentiment: Bool = false
 }
 
 /// One evaluation result from the auto-trader - a HOLD, a skipped trade with
