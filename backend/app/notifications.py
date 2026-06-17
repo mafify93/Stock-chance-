@@ -1,4 +1,4 @@
-"""Email/SMS alert module for the auto-trader.
+"""Email alert module for the auto-trader.
 
 Sends alerts via SMTP (Gmail by default). Configure via environment variables:
   ALERT_SMTP_HOST      - SMTP host (default: smtp.gmail.com)
@@ -6,9 +6,7 @@ Sends alerts via SMTP (Gmail by default). Configure via environment variables:
   ALERT_SMTP_USER      - Gmail address used to authenticate
   ALERT_SMTP_PASSWORD  - Gmail App Password (not your regular password)
   ALERT_EMAIL_FROM     - From address (defaults to ALERT_SMTP_USER)
-  ALERT_EMAIL_TO       - Comma-separated list of recipients (supports
-                         carrier email-to-SMS gateways like
-                         6135551234@tmomail.net)
+  ALERT_EMAIL_TO       - Comma-separated list of recipient email addresses
 
 All send functions log exceptions and never raise - alerts are best-effort.
 """
