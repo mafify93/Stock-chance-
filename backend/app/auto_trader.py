@@ -55,7 +55,7 @@ from .intraday import compute_day_signal, get_market_session
 from .ml.model import ml_predictor
 from .providers import alpaca, questrade, sec_edgar, yahoo
 from .signals import analyze
-from .universe import DAYTRADE_UNIVERSE, DEFAULT_UNIVERSE
+from .universe import DAYTRADE_UNIVERSE, DEFAULT_UNIVERSE, ETF_SCALP_UNIVERSE
 
 logger = logging.getLogger(__name__)
 
@@ -77,21 +77,20 @@ _DEFAULT_CONFIG = {
     "auto_select_count": 5,
     # Risk control: never hold more than this many open positions at once.
     "max_open_positions": 5,
-    "min_confidence": 70.0,
+    "min_confidence": 75.0,
     "max_position_value": 100.0,
-    "max_daily_trades": 3,
-    "poll_interval_minutes": 15,
+    "max_daily_trades": 2,
+    "poll_interval_minutes": 5,
     "environment": "paper",
     "confirmed_real_money": False,
     "alpaca_api_key_id": None,
     "alpaca_api_secret_key": None,
     "questrade_refresh_token": None,
     "questrade_account_number": None,
-    # Scalping mode: use 5-min intraday signals instead of daily candles.
-    # Designed for many small wins per day (VWAP, EMA crossover, opening range,
-    # volume spikes). When True, the first-pass scan uses DAYTRADE_UNIVERSE
-    # and all evaluations use compute_day_signal. When False, uses daily candles
-    # across the full DEFAULT_UNIVERSE (swing-trading style).
+    # Intraday mode: 5-min signals + ETF-only universe.
+    # ETF buys are FREE on Questrade (only sell costs $4.95), cutting the
+    # round-trip commission in half. Combined with high confidence (75%) and
+    # a 2-trade daily cap, this favours quality over quantity for small accounts.
     "use_intraday_signals": True,
     # Phase 2: Risk management
     "stop_loss_pct": 1.5,
@@ -489,8 +488,9 @@ class AutoTraderEngine:
         held = list(positions_by_symbol.keys())
 
         if config.get("use_intraday_signals", True):
-            # Intraday scalping: small universe, 5-min bars, fast execution
-            universe = DAYTRADE_UNIVERSE
+            # Intraday ETF mode: sector ETFs are free to buy on Questrade,
+            # cutting round-trip commissions in half for small accounts.
+            universe = ETF_SCALP_UNIVERSE
             to_scan = [sym for sym in universe if sym not in held]
 
             def _scan_intraday(sym: str) -> tuple[str, float] | None:

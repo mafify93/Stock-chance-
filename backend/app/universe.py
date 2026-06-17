@@ -142,6 +142,27 @@ DAYTRADE_UNIVERSE: list[str] = [
     "MARA", "MSTR", "SMCI", "UBER",
 ]
 
+# Affordable sector ETFs for the auto-trader's ETF-only scalping mode.
+# ETF buys are FREE on Questrade (only selling costs $4.95), which cuts
+# the round-trip commission in half vs stocks. All of these are typically
+# priced under $100/share so a $100 position can buy at least 1 share.
+# Covers every major S&P 500 sector so there's always something moving.
+ETF_SCALP_UNIVERSE: list[str] = [
+    "XLF",   # Financials        (~$45)
+    "XLE",   # Energy            (~$85)
+    "XLP",   # Consumer Staples  (~$78)
+    "XLU",   # Utilities         (~$68)
+    "XLB",   # Materials         (~$89)
+    "XLRE",  # Real Estate       (~$40)
+    "GDX",   # Gold Miners       (~$45)
+    "GDXJ",  # Junior Gold Miners (~$45)
+    "SLV",   # Silver            (~$27)
+    "IAU",   # Gold              (~$44)
+    "EEM",   # Emerging Markets  (~$43)
+    "HYG",   # High-Yield Bonds  (~$78)
+    "ARKK",  # Innovation ETF    (~$50)
+]
+
 # Higher-beta small/mid-cap names that tend to see outsized pre-market gaps
 # and volume spikes - used by the "Pre-Market Movers" scan in addition to
 # DAYTRADE_UNIVERSE. Still liquid, exchange-listed names (not obscure penny
