@@ -58,7 +58,10 @@ from .universe import DEFAULT_UNIVERSE
 
 logger = logging.getLogger(__name__)
 
-DATA_DIR = Path(__file__).resolve().parents[1] / "data"
+# On Render (and other cloud hosts), the container filesystem is ephemeral -
+# runtime data is lost on every redeploy. Set PERSISTENT_DATA_DIR to a
+# mounted persistent disk path (e.g. /data) so config and logs survive.
+DATA_DIR = Path(os.environ.get("PERSISTENT_DATA_DIR", Path(__file__).resolve().parents[1] / "data"))
 CONFIG_PATH = DATA_DIR / "auto_trader_config.json"
 LOG_PATH = DATA_DIR / "auto_trader_log.json"
 MAX_LOG_ENTRIES = 200
@@ -153,14 +156,22 @@ class AutoTraderEngine:
     # --- persistence ---------------------------------------------------
 
     def _load_config(self) -> dict:
+        # Seed from env vars first so credentials survive even a full disk wipe.
+        # The saved file takes precedence (it holds the latest rotated token).
+        env_overrides: dict = {}
+        if os.environ.get("QUESTRADE_REFRESH_TOKEN"):
+            env_overrides["questrade_refresh_token"] = os.environ["QUESTRADE_REFRESH_TOKEN"]
+        if os.environ.get("QUESTRADE_ACCOUNT_NUMBER"):
+            env_overrides["questrade_account_number"] = os.environ["QUESTRADE_ACCOUNT_NUMBER"]
+
         if CONFIG_PATH.exists():
             try:
                 with open(CONFIG_PATH) as f:
                     data = json.load(f)
-                return {**_DEFAULT_CONFIG, **data}
+                return {**_DEFAULT_CONFIG, **env_overrides, **data}
             except Exception:  # noqa: BLE001
                 logger.exception("Failed to load auto-trader config, using defaults")
-        return dict(_DEFAULT_CONFIG)
+        return {**_DEFAULT_CONFIG, **env_overrides}
 
     def _save_config(self) -> None:
         DATA_DIR.mkdir(parents=True, exist_ok=True)

@@ -60,7 +60,7 @@ ANTHROPIC_VERSION = "2023-06-01"
 DEFAULT_MODEL = "claude-sonnet-4-6"
 WEB_SEARCH_MAX_USES = 8
 
-DATA_DIR = Path(__file__).resolve().parents[1] / "data"
+DATA_DIR = Path(os.environ.get("PERSISTENT_DATA_DIR", Path(__file__).resolve().parents[1] / "data"))
 RESULT_PATH = DATA_DIR / "night_scan.json"
 
 # Run once per evening, at or after this hour (US/Eastern)...
