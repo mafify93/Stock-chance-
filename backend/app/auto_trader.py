@@ -51,11 +51,11 @@ from threading import Lock
 
 from . import ai_analyst, earnings_sentiment, models, notifications
 from .ai_combine import combine
-from .intraday import get_market_session
+from .intraday import compute_day_signal, get_market_session
 from .ml.model import ml_predictor
 from .providers import alpaca, questrade, sec_edgar, yahoo
 from .signals import analyze
-from .universe import DEFAULT_UNIVERSE
+from .universe import DAYTRADE_UNIVERSE, DEFAULT_UNIVERSE
 
 logger = logging.getLogger(__name__)
 
@@ -87,9 +87,15 @@ _DEFAULT_CONFIG = {
     "alpaca_api_secret_key": None,
     "questrade_refresh_token": None,
     "questrade_account_number": None,
+    # Scalping mode: use 5-min intraday signals instead of daily candles.
+    # Designed for many small wins per day (VWAP, EMA crossover, opening range,
+    # volume spikes). When True, the first-pass scan uses DAYTRADE_UNIVERSE
+    # and all evaluations use compute_day_signal. When False, uses daily candles
+    # across the full DEFAULT_UNIVERSE (swing-trading style).
+    "use_intraday_signals": True,
     # Phase 2: Risk management
-    "stop_loss_pct": 3.0,
-    "trailing_stop_pct": 3.0,
+    "stop_loss_pct": 1.5,
+    "trailing_stop_pct": 1.0,
     "max_daily_loss_pct": 5.0,
     "require_multi_timeframe": False,
     # Signal-quality factors
@@ -259,8 +265,9 @@ class AutoTraderEngine:
                 confirmed_real_money=c["confirmed_real_money"],
                 alpaca_configured=bool(c.get("alpaca_api_key_id") and c.get("alpaca_api_secret_key")),
                 questrade_configured=bool(c.get("questrade_refresh_token") and c.get("questrade_account_number")),
-                stop_loss_pct=c.get("stop_loss_pct", 3.0),
-                trailing_stop_pct=c.get("trailing_stop_pct", 3.0),
+                use_intraday_signals=c.get("use_intraday_signals", True),
+                stop_loss_pct=c.get("stop_loss_pct", 1.5),
+                trailing_stop_pct=c.get("trailing_stop_pct", 1.0),
                 max_daily_loss_pct=c.get("max_daily_loss_pct", 5.0),
                 require_multi_timeframe=c.get("require_multi_timeframe", False),
                 use_insider_signal=c.get("use_insider_signal", True),
@@ -295,6 +302,7 @@ class AutoTraderEngine:
                 self._config["questrade_refresh_token"] = req.questrade_refresh_token
             if req.questrade_account_number:
                 self._config["questrade_account_number"] = req.questrade_account_number
+            self._config["use_intraday_signals"] = req.use_intraday_signals
             self._config["stop_loss_pct"] = max(0.0, req.stop_loss_pct)
             self._config["trailing_stop_pct"] = max(0.0, req.trailing_stop_pct)
             self._config["max_daily_loss_pct"] = max(0.0, req.max_daily_loss_pct)
@@ -470,38 +478,59 @@ class AutoTraderEngine:
         return list(config["symbols"])
 
     def _select_symbols(self, config: dict, positions_by_symbol: dict[str, dict]) -> list[str]:
-        """Screen a broad liquid universe with the (cheap) rule-based signal
-        and return the highest-conviction BUY candidates, plus every symbol
-        currently held so it can be evaluated for an exit.
+        """Screen a universe for BUY candidates, plus all currently-held symbols.
 
-        This is the cheap first pass: only the resulting shortlist gets the
-        full (heavier) combined ML + AI-analyst evaluation in
-        `_evaluate_symbol`, so we don't run the LLM across the whole universe
-        every cycle. Symbols are fetched in parallel (15 workers) so the
-        full ~460-stock S&P 500 universe scans in roughly the same time as
-        the old 80-stock sequential scan."""
+        Intraday mode (use_intraday_signals=True): scans the DAYTRADE_UNIVERSE
+        (~24 liquid stocks + ETFs) using 5-minute bars and compute_day_signal.
+        Fast enough to run every cycle without parallel fetching.
+
+        Daily mode: scans the full DEFAULT_UNIVERSE (~480 S&P 500 stocks) using
+        daily candles + analyze(), parallelised across 15 workers."""
         held = list(positions_by_symbol.keys())
-        to_scan = [sym for sym in DEFAULT_UNIVERSE if sym not in held]
 
-        def _scan_one(sym: str) -> tuple[str, float] | None:
-            try:
-                df = yahoo.get_history(sym, "1y", "1d")
-                result = analyze(sym, df)
-                if result.action in ("BUY", "STRONG_BUY"):
-                    return (sym, result.score)
-            except Exception:  # noqa: BLE001 - skip any symbol that won't load
-                pass
-            return None
+        if config.get("use_intraday_signals", True):
+            # Intraday scalping: small universe, 5-min bars, fast execution
+            universe = DAYTRADE_UNIVERSE
+            to_scan = [sym for sym in universe if sym not in held]
 
-        candidates: list[tuple[str, float]] = []
-        with ThreadPoolExecutor(max_workers=15) as executor:
-            for result in executor.map(_scan_one, to_scan):
-                if result is not None:
-                    candidates.append(result)
+            def _scan_intraday(sym: str) -> tuple[str, float] | None:
+                try:
+                    df = yahoo.get_intraday_history(sym, "5d", "5m")
+                    result = compute_day_signal(sym, df)
+                    if result.action == "DAY_BUY":
+                        return (sym, result.score)
+                except Exception:  # noqa: BLE001
+                    pass
+                return None
+
+            candidates: list[tuple[str, float]] = []
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                for result in executor.map(_scan_intraday, to_scan):
+                    if result is not None:
+                        candidates.append(result)
+        else:
+            # Daily swing-trading: full S&P 500 universe, daily candles
+            to_scan = [sym for sym in DEFAULT_UNIVERSE if sym not in held]
+
+            def _scan_daily(sym: str) -> tuple[str, float] | None:
+                try:
+                    df = yahoo.get_history(sym, "1y", "1d")
+                    result = analyze(sym, df)
+                    if result.action in ("BUY", "STRONG_BUY"):
+                        return (sym, result.score)
+                except Exception:  # noqa: BLE001
+                    pass
+                return None
+
+            candidates = []
+            with ThreadPoolExecutor(max_workers=15) as executor:
+                for result in executor.map(_scan_daily, to_scan):
+                    if result is not None:
+                        candidates.append(result)
 
         candidates.sort(key=lambda item: item[1], reverse=True)
         top = [sym for sym, _ in candidates[: config.get("auto_select_count", 5)]]
-        # Held positions first so exits are always considered before new buys.
+        # Held positions first so exits are always evaluated before new buys.
         return held + top
 
     def _evaluate_symbol(
@@ -513,35 +542,61 @@ class AutoTraderEngine:
         session: _BrokerSession | None,
         session_error: str | None,
     ) -> dict:
-        try:
-            df = yahoo.get_history(symbol, "1y", "1d")
-            signal_result = analyze(symbol, df)
-        except Exception as exc:  # noqa: BLE001
-            return _decision(symbol, "HOLD", 0.0, False, f"data error: {exc}")
+        use_intraday = config.get("use_intraday_signals", True)
 
-        signal_dict = {
-            "action": signal_result.action,
-            "score": signal_result.score,
-            "confidence": signal_result.confidence,
-            "price": signal_result.price,
-            "reasons": signal_result.reasons,
-        }
-        ml_result = ml_predictor.predict(df)
-        llm_result = ai_analyst.analyze(symbol, signal_dict, ml_result) if ai_analyst.configured() else None
-        # Auxiliary factors - only run on the shortlist here, never in the
-        # cheap universe-wide first pass (`_select_symbols`).
-        insider_result = sec_edgar.get_insider_signal(symbol) if config.get("use_insider_signal") else None
-        sentiment_result = (
-            earnings_sentiment.get_sentiment(symbol)
-            if config.get("use_earnings_sentiment") and earnings_sentiment.configured()
-            else None
-        )
-        action, confidence = combine(signal_dict, ml_result, llm_result, insider_result, sentiment_result)
+        if use_intraday:
+            # --- Intraday / scalping mode: 5-minute bars ---
+            try:
+                df_intraday = yahoo.get_intraday_history(symbol, "5d", "5m")
+                day_result = compute_day_signal(symbol, df_intraday)
+            except Exception as exc:  # noqa: BLE001
+                return _decision(symbol, "HOLD", 0.0, False, f"intraday data error: {exc}")
+
+            _action_map = {"DAY_BUY": "BUY", "DAY_SELL": "SELL", "DAY_HOLD": "HOLD"}
+            action = _action_map.get(day_result.action, "HOLD")
+            confidence = day_result.confidence
+
+            # Create a minimal signal_result-like object so the shared exit
+            # logic below (trailing stop, order placement) can access .price
+            class _IntraResult:
+                price = day_result.price
+                reasons = day_result.reasons
+            signal_result = _IntraResult()
+
+            # EOD forced close: market closes in ≤15 min - exit all held positions
+            if day_result.alert == "EOD_EXIT" and positions_by_symbol.get(symbol):
+                action = "SELL"
+                confidence = 95.0
+                logger.info("EOD forced close for %s - market closing soon", symbol)
+
+        else:
+            # --- Daily / swing-trading mode: daily candles ---
+            try:
+                df = yahoo.get_history(symbol, "1y", "1d")
+                signal_result = analyze(symbol, df)
+            except Exception as exc:  # noqa: BLE001
+                return _decision(symbol, "HOLD", 0.0, False, f"data error: {exc}")
+
+            signal_dict = {
+                "action": signal_result.action,
+                "score": signal_result.score,
+                "confidence": signal_result.confidence,
+                "price": signal_result.price,
+                "reasons": signal_result.reasons,
+            }
+            ml_result = ml_predictor.predict(df)
+            llm_result = ai_analyst.analyze(symbol, signal_dict, ml_result) if ai_analyst.configured() else None
+            insider_result = sec_edgar.get_insider_signal(symbol) if config.get("use_insider_signal") else None
+            sentiment_result = (
+                earnings_sentiment.get_sentiment(symbol)
+                if config.get("use_earnings_sentiment") and earnings_sentiment.configured()
+                else None
+            )
+            action, confidence = combine(signal_dict, ml_result, llm_result, insider_result, sentiment_result)
 
         # --- Trailing stop: protect gains dynamically ---
-        # When we hold a position and are in profit, track the highest price seen
-        # since entry. If price drops trailing_stop_pct% below that peak, sell
-        # immediately (bypasses signal/confidence gates - this is gain protection).
+        # Tracks the highest price seen since entry. When in profit and price
+        # falls trailing_stop_pct% from that peak, sell immediately.
         _held = positions_by_symbol.get(symbol)
         if _held and action not in ("SELL", "STRONG_SELL"):
             _entry = config.get("position_entries", {}).get(symbol)
@@ -554,7 +609,7 @@ class AutoTraderEngine:
                         self._config.setdefault("position_highs", {})[symbol] = _new_high
                         self._save_config()
                     config = dict(self._config)
-                _trail_pct = config.get("trailing_stop_pct", 3.0)
+                _trail_pct = config.get("trailing_stop_pct", 1.0)
                 if _current > _entry and _current <= _new_high * (1 - _trail_pct / 100):
                     action = "SELL"
                     confidence = 85.0
@@ -564,8 +619,8 @@ class AutoTraderEngine:
                         (_new_high - _current) / _new_high * 100,
                     )
 
-        # --- Phase 4: Multi-timeframe confirmation (opt-in) ---
-        if config.get("require_multi_timeframe"):
+        # --- Phase 4: Multi-timeframe confirmation (opt-in, daily mode only) ---
+        if not use_intraday and config.get("require_multi_timeframe"):
             try:
                 df_1h = yahoo.get_history(symbol, "60d", "1h")
                 signal_1h = analyze(symbol, df_1h)

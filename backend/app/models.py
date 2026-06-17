@@ -415,8 +415,9 @@ class AutoTraderConfigRequest(BaseModel):
     alpaca_api_secret_key: str | None = None
     questrade_refresh_token: str | None = None
     questrade_account_number: str | None = None
-    stop_loss_pct: float = 3.0
-    trailing_stop_pct: float = 3.0
+    use_intraday_signals: bool = True
+    stop_loss_pct: float = 1.5
+    trailing_stop_pct: float = 1.0
     max_daily_loss_pct: float = 5.0
     require_multi_timeframe: bool = False
     use_insider_signal: bool = True
@@ -438,8 +439,9 @@ class AutoTraderConfig(BaseModel):
     confirmed_real_money: bool
     alpaca_configured: bool
     questrade_configured: bool
-    stop_loss_pct: float = 3.0
-    trailing_stop_pct: float = 3.0
+    use_intraday_signals: bool = True
+    stop_loss_pct: float = 1.5
+    trailing_stop_pct: float = 1.0
     max_daily_loss_pct: float = 5.0
     require_multi_timeframe: bool = False
     use_insider_signal: bool = True
