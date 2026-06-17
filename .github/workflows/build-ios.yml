@@ -1,0 +1,57 @@
+name: Build iOS app
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - claude/day-trading-stock-app-8eq4ol
+    paths:
+      - "app/**"
+      - ".github/workflows/build-ios.yml"
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select latest Xcode
+        run: |
+          ls /Applications | grep Xcode
+          LATEST=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
+          echo "Using $LATEST"
+          sudo xcode-select -s "$LATEST"
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+        working-directory: app
+
+      - name: Build unsigned app
+        run: |
+          xcodebuild \
+            -project StockChance.xcodeproj \
+            -scheme StockChance_iOS \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+        working-directory: app
+
+      - name: Package IPA
+        run: |
+          cd app/build/Build/Products/Release-iphoneos
+          mkdir Payload
+          cp -r StockChance.app Payload/
+          zip -r StockChance.ipa Payload
+        shell: bash
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: StockChance-iOS-ipa
+          path: app/build/Build/Products/Release-iphoneos/StockChance.ipa

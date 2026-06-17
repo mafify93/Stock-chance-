@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# AI Auto-Trader (config incl. Alpaca API keys, decision log) and Tonight's
+# Picks (nightly scan results)
+backend/data/
+
+# Xcode / XcodeGen
+app/*.xcodeproj/
+app/.build/
+app/DerivedData/
+**/*.xcuserstate
+**/xcuserdata/
+
+# macOS
+.DS_Store

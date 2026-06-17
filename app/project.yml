@@ -1,0 +1,35 @@
+name: StockChance
+options:
+  bundleIdPrefix: com.stockchance
+  deploymentTarget:
+    iOS: "16.0"
+    macOS: "13.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    PRODUCT_BUNDLE_IDENTIFIER: com.stockchance.app
+    ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+
+    GENERATE_INFOPLIST_FILE: YES
+    INFOPLIST_KEY_CFBundleDisplayName: "Stock Chance"
+    INFOPLIST_KEY_NSLocalNetworkUsageDescription: "Stock Chance connects to your Stock Chance backend server on your local network."
+
+    # iOS uses a fully self-contained Info.plist (with UILaunchScreen, scene
+    # manifest, etc.) instead of the generated one - see Info-iOS.plist.
+    "GENERATE_INFOPLIST_FILE[sdk=iphone*]": NO
+    "INFOPLIST_FILE[sdk=iphone*]": Sources/StockChance/Resources/Info-iOS.plist
+
+    "COMBINE_HIDPI_IMAGES[sdk=macosx*]": YES
+    "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": Sources/StockChance/Resources/StockChance-macOS.entitlements
+
+targets:
+  StockChance:
+    type: application
+    platform: [iOS, macOS]
+    sources:
+      - path: Sources/StockChance
