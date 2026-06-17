@@ -205,9 +205,13 @@ struct AutoTraderConfigRequest: Encodable {
     var alpacaApiSecretKey: String?
     var questradeRefreshToken: String?
     var questradeAccountNumber: String?
-    var stopLossPct: Double = 3.0
+    var useIntradaySignals: Bool = true
+    var stopLossPct: Double = 1.5
+    var trailingStopPct: Double = 1.0
     var maxDailyLossPct: Double = 5.0
     var requireMultiTimeframe: Bool = false
+    var useInsiderSignal: Bool = true
+    var useEarningsSentiment: Bool = false
 }
 
 struct AutoTraderConfig: Codable, Hashable {
@@ -225,9 +229,13 @@ struct AutoTraderConfig: Codable, Hashable {
     var confirmedRealMoney: Bool
     var alpacaConfigured: Bool
     var questradeConfigured: Bool
-    var stopLossPct: Double = 3.0
+    var useIntradaySignals: Bool = true
+    var stopLossPct: Double = 1.5
+    var trailingStopPct: Double = 1.0
     var maxDailyLossPct: Double = 5.0
     var requireMultiTimeframe: Bool = false
+    var useInsiderSignal: Bool = true
+    var useEarningsSentiment: Bool = false
 }
 
 /// One evaluation result from the auto-trader - a HOLD, a skipped trade with
@@ -254,6 +262,22 @@ struct AutoTraderStatus: Codable, Hashable {
     var tradesToday: Int
     var decisions: [AutoTraderDecision]
     var disclaimer: String
+}
+
+struct AutoTraderPosition: Codable, Identifiable, Hashable {
+    var symbol: String
+    var entryPrice: Double
+    var currentPrice: Double?
+    var pnlPct: Double?
+    var pnlDollar: Double?
+
+    var id: String { symbol }
+}
+
+struct SellAllResponse: Codable {
+    var sold: [String]
+    var errors: [[String: String]]
+    var message: String
 }
 
 // MARK: - Tonight's Picks (nightly AI deep-research scan)

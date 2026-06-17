@@ -49,3 +49,16 @@ async def run_now():
     still only acts while the market is open."""
     await run_in_threadpool(auto_trader.run_once)
     return auto_trader.get_status()
+
+
+@router.get("/positions", response_model=list[models.AutoTraderPosition])
+async def get_positions():
+    """Current auto-trader holdings with entry prices and live P&L from Yahoo Finance."""
+    return await run_in_threadpool(auto_trader.get_positions_with_pnl)
+
+
+@router.post("/sell-all", response_model=models.SellAllResponse)
+async def sell_all():
+    """Emergency liquidation: immediately sell all tracked auto-trader positions
+    through the configured broker. Cancels any pending stop-loss orders first."""
+    return await run_in_threadpool(auto_trader.sell_all)

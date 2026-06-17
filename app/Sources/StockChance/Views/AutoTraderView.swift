@@ -31,16 +31,21 @@ struct AutoTraderView: View {
     @State private var alpacaApiSecretKey = ""
     @State private var questradeRefreshToken = ""
     @State private var questradeAccountNumber = ""
+    @State private var useIntradaySignals = true
+    @State private var stopLossPct: Double = 1.5
+    @State private var trailingStopPct: Double = 1.0
 
     @State private var hasLoadedConfig = false
     @State private var showEnableConfirmation = false
     @State private var showRealMoneyConfirmation = false
+    @State private var showSellAllConfirmation = false
     @State private var saveMessage: String?
 
     var body: some View {
         NavigationStack {
             Form {
                 statusSection
+                holdingsSection
                 brokerSection
                 symbolsSection
                 strategySection
@@ -52,6 +57,12 @@ struct AutoTraderView: View {
             }
             .navigationTitle("AI Auto-Trader")
             .luxuryBackground()
+            .refreshable {
+                await viewModel.load(baseURL: apiConfig.baseURL)
+                if let config = viewModel.status?.config {
+                    apply(config)
+                }
+            }
             .task {
                 await viewModel.load(baseURL: apiConfig.baseURL)
                 if !hasLoadedConfig, let config = viewModel.status?.config {
@@ -105,6 +116,82 @@ struct AutoTraderView: View {
         }
     }
 
+    @ViewBuilder
+    private var holdingsSection: some View {
+        Section {
+            if viewModel.positions.isEmpty && !viewModel.isLoading {
+                Text("No tracked positions")
+                    .foregroundStyle(Theme.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+            } else {
+                ForEach(viewModel.positions) { pos in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(pos.symbol)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(Theme.textPrimary)
+                            if let current = pos.currentPrice {
+                                Text("Entry $\(pos.entryPrice, specifier: "%.2f") → Now $\(current, specifier: "%.2f")")
+                                    .font(.caption)
+                                    .foregroundStyle(Theme.textSecondary)
+                            } else {
+                                Text("Entry $\(pos.entryPrice, specifier: "%.2f")")
+                                    .font(.caption)
+                                    .foregroundStyle(Theme.textSecondary)
+                            }
+                        }
+                        Spacer()
+                        if let pct = pos.pnlPct {
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text("\(pct >= 0 ? "+" : "")\(pct, specifier: "%.2f")%")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(pct >= 0 ? Theme.profit : Theme.loss)
+                                if let dollar = pos.pnlDollar {
+                                    Text("\(dollar >= 0 ? "+" : "")$\(dollar, specifier: "%.2f")")
+                                        .font(.caption)
+                                        .foregroundStyle(pct >= 0 ? Theme.profit : Theme.loss)
+                                }
+                            }
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+
+            Button(role: .destructive) {
+                showSellAllConfirmation = true
+            } label: {
+                if viewModel.isSelling {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                } else {
+                    Label("Sell All Positions", systemImage: "exclamationmark.triangle.fill")
+                        .frame(maxWidth: .infinity)
+                        .foregroundStyle(viewModel.positions.isEmpty ? Theme.textSecondary : Theme.loss)
+                }
+            }
+            .disabled(viewModel.positions.isEmpty || viewModel.isSelling)
+
+            if let msg = viewModel.sellMessage {
+                Text(msg)
+                    .font(.caption)
+                    .foregroundStyle(msg.hasPrefix("✅") ? Theme.profit : Theme.loss)
+            }
+        } header: {
+            Text("Current Holdings")
+        } footer: {
+            Text("Positions tracked by the auto-trader. \"Sell All\" immediately liquidates every tracked position through your broker and cancels any pending stop orders - use only in emergencies.")
+        }
+        .alert("Sell All Positions?", isPresented: $showSellAllConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Sell Everything Now", role: .destructive) {
+                Task { await viewModel.sellAll(baseURL: apiConfig.baseURL) }
+            }
+        } message: {
+            Text("This will immediately place SELL orders for all \(viewModel.positions.count) tracked position(s) through your broker. This cannot be undone.")
+        }
+    }
+
     private var brokerSection: some View {
         Section {
             Picker("Broker", selection: $broker) {
@@ -150,6 +237,17 @@ struct AutoTraderView: View {
 
     private var strategySection: some View {
         Section {
+            Toggle(isOn: $useIntradaySignals) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("ETF Intraday Mode")
+                        .foregroundStyle(Theme.textPrimary)
+                    Text("Scans sector ETFs (XLF, XLE, XLP…) every 5 min using same-day signals. ETF buys are FREE on Questrade. Exits before market close.")
+                        .font(.caption)
+                        .foregroundStyle(Theme.textSecondary)
+                }
+            }
+            .tint(Theme.gold)
+
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text("Minimum Confidence")
@@ -169,10 +267,26 @@ struct AutoTraderView: View {
             Stepper("Max Trades / Day: \(maxDailyTrades)", value: $maxDailyTrades, in: 0...20)
             Stepper("Max Open Positions: \(maxOpenPositions)", value: $maxOpenPositions, in: 1...50)
             Stepper("Check Every \(pollIntervalMinutes) min", value: $pollIntervalMinutes, in: 5...120, step: 5)
+            HStack {
+                Text("Stop-Loss")
+                    .foregroundStyle(Theme.textPrimary)
+                Spacer()
+                Text("\(stopLossPct, specifier: "%.1f")%")
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            Slider(value: $stopLossPct, in: 0.5...10, step: 0.5)
+            HStack {
+                Text("Trailing Stop (from peak)")
+                    .foregroundStyle(Theme.textPrimary)
+                Spacer()
+                Text("\(trailingStopPct, specifier: "%.1f")%")
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            Slider(value: $trailingStopPct, in: 0.5...10, step: 0.5)
         } header: {
             Text("Strategy")
         } footer: {
-            Text("Only acts when the combined AI signal meets this confidence level. Max Position Value caps the dollar amount per buy order; Max Open Positions caps how many holdings it can run at once (your total risk ≈ Max Position Value × Max Open Positions). The auto-trader never adds to an existing position.")
+            Text("ETF Intraday Mode uses VWAP, opening-range breakout, EMA crossover & volume to time entries on affordable sector ETFs (buys free on Questrade). Trailing Stop sells once price falls that % below its highest point since you bought — locking in gains without a fixed target.")
         }
     }
 
@@ -376,6 +490,9 @@ struct AutoTraderView: View {
         pollIntervalMinutes = config.pollIntervalMinutes
         environmentSelection = config.environment
         confirmedRealMoney = config.confirmedRealMoney
+        useIntradaySignals = config.useIntradaySignals
+        stopLossPct = config.stopLossPct
+        trailingStopPct = config.trailingStopPct
         if questradeAccountNumber.isEmpty && !brokerStore.questradeAccountNumber.isEmpty {
             questradeAccountNumber = brokerStore.questradeAccountNumber
         }
@@ -403,7 +520,10 @@ struct AutoTraderView: View {
             alpacaApiKeyId: alpacaApiKeyId.isEmpty ? nil : alpacaApiKeyId,
             alpacaApiSecretKey: alpacaApiSecretKey.isEmpty ? nil : alpacaApiSecretKey,
             questradeRefreshToken: questradeRefreshToken.isEmpty ? nil : questradeRefreshToken,
-            questradeAccountNumber: questradeAccountNumber.isEmpty ? nil : questradeAccountNumber
+            questradeAccountNumber: questradeAccountNumber.isEmpty ? nil : questradeAccountNumber,
+            useIntradaySignals: useIntradaySignals,
+            stopLossPct: stopLossPct,
+            trailingStopPct: trailingStopPct
         )
     }
 

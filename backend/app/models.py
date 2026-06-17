@@ -468,6 +468,20 @@ class AutoTraderStatus(BaseModel):
     )
 
 
+class AutoTraderPosition(BaseModel):
+    symbol: str
+    entry_price: float
+    current_price: float | None = None
+    pnl_pct: float | None = None
+    pnl_dollar: float | None = None
+
+
+class SellAllResponse(BaseModel):
+    sold: list[str]
+    errors: list[dict]
+    message: str
+
+
 # --- Tonight's Picks (nightly AI deep-research scan) -------------------------
 
 
