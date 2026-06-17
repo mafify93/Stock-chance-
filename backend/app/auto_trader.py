@@ -44,6 +44,7 @@ import asyncio
 import json
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
@@ -471,19 +472,27 @@ class AutoTraderEngine:
         This is the cheap first pass: only the resulting shortlist gets the
         full (heavier) combined ML + AI-analyst evaluation in
         `_evaluate_symbol`, so we don't run the LLM across the whole universe
-        every cycle."""
+        every cycle. Symbols are fetched in parallel (15 workers) so the
+        full ~460-stock S&P 500 universe scans in roughly the same time as
+        the old 80-stock sequential scan."""
         held = list(positions_by_symbol.keys())
-        candidates: list[tuple[str, float]] = []
-        for sym in DEFAULT_UNIVERSE:
-            if sym in held:
-                continue
+        to_scan = [sym for sym in DEFAULT_UNIVERSE if sym not in held]
+
+        def _scan_one(sym: str) -> tuple[str, float] | None:
             try:
                 df = yahoo.get_history(sym, "1y", "1d")
                 result = analyze(sym, df)
+                if result.action in ("BUY", "STRONG_BUY"):
+                    return (sym, result.score)
             except Exception:  # noqa: BLE001 - skip any symbol that won't load
-                continue
-            if result.action in ("BUY", "STRONG_BUY"):
-                candidates.append((sym, result.score))
+                pass
+            return None
+
+        candidates: list[tuple[str, float]] = []
+        with ThreadPoolExecutor(max_workers=15) as executor:
+            for result in executor.map(_scan_one, to_scan):
+                if result is not None:
+                    candidates.append(result)
 
         candidates.sort(key=lambda item: item[1], reverse=True)
         top = [sym for sym, _ in candidates[: config.get("auto_select_count", 5)]]
