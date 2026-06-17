@@ -89,12 +89,15 @@ _DEFAULT_CONFIG = {
     "questrade_account_number": None,
     # Phase 2: Risk management
     "stop_loss_pct": 3.0,
+    "trailing_stop_pct": 3.0,
     "max_daily_loss_pct": 5.0,
     "require_multi_timeframe": False,
     # Signal-quality factors
     "use_insider_signal": True,  # SEC Form 4 insider trading (free)
     "use_earnings_sentiment": False,  # Claude web-search earnings sentiment (costs API calls)
     "stop_orders": {},  # {symbol: order_id_string} — active stop-loss order IDs
+    "position_entries": {},  # {symbol: entry_price} — for trailing stop tracking
+    "position_highs": {},  # {symbol: highest_price_since_entry} — for trailing stop
     "circuit_breaker_date": None,  # ISO date string of last circuit-breaker check
     "circuit_breaker_start_equity": None,  # float equity at start of that trading day
 }
@@ -257,6 +260,7 @@ class AutoTraderEngine:
                 alpaca_configured=bool(c.get("alpaca_api_key_id") and c.get("alpaca_api_secret_key")),
                 questrade_configured=bool(c.get("questrade_refresh_token") and c.get("questrade_account_number")),
                 stop_loss_pct=c.get("stop_loss_pct", 3.0),
+                trailing_stop_pct=c.get("trailing_stop_pct", 3.0),
                 max_daily_loss_pct=c.get("max_daily_loss_pct", 5.0),
                 require_multi_timeframe=c.get("require_multi_timeframe", False),
                 use_insider_signal=c.get("use_insider_signal", True),
@@ -292,6 +296,7 @@ class AutoTraderEngine:
             if req.questrade_account_number:
                 self._config["questrade_account_number"] = req.questrade_account_number
             self._config["stop_loss_pct"] = max(0.0, req.stop_loss_pct)
+            self._config["trailing_stop_pct"] = max(0.0, req.trailing_stop_pct)
             self._config["max_daily_loss_pct"] = max(0.0, req.max_daily_loss_pct)
             self._config["require_multi_timeframe"] = req.require_multi_timeframe
             self._config["use_insider_signal"] = req.use_insider_signal
@@ -533,6 +538,32 @@ class AutoTraderEngine:
         )
         action, confidence = combine(signal_dict, ml_result, llm_result, insider_result, sentiment_result)
 
+        # --- Trailing stop: protect gains dynamically ---
+        # When we hold a position and are in profit, track the highest price seen
+        # since entry. If price drops trailing_stop_pct% below that peak, sell
+        # immediately (bypasses signal/confidence gates - this is gain protection).
+        _held = positions_by_symbol.get(symbol)
+        if _held and action not in ("SELL", "STRONG_SELL"):
+            _entry = config.get("position_entries", {}).get(symbol)
+            _current = signal_result.price
+            if _entry and _entry > 0 and _current > 0:
+                _prev_high = config.get("position_highs", {}).get(symbol, _current)
+                _new_high = max(_prev_high, _current)
+                if _new_high > _prev_high:
+                    with self._lock:
+                        self._config.setdefault("position_highs", {})[symbol] = _new_high
+                        self._save_config()
+                    config = dict(self._config)
+                _trail_pct = config.get("trailing_stop_pct", 3.0)
+                if _current > _entry and _current <= _new_high * (1 - _trail_pct / 100):
+                    action = "SELL"
+                    confidence = 85.0
+                    logger.info(
+                        "Trailing stop triggered for %s: entry=%.2f high=%.2f current=%.2f (%.1f%% pullback)",
+                        symbol, _entry, _new_high, _current,
+                        (_new_high - _current) / _new_high * 100,
+                    )
+
         # --- Phase 4: Multi-timeframe confirmation (opt-in) ---
         if config.get("require_multi_timeframe"):
             try:
@@ -616,6 +647,12 @@ class AutoTraderEngine:
             # and "already holding" checks stay accurate across this run.
             if side == "buy":
                 positions_by_symbol[symbol] = {"symbol": symbol, "qty": qty}
+                # Record entry price and initial high water mark for trailing stop.
+                with self._lock:
+                    self._config.setdefault("position_entries", {})[symbol] = signal_result.price
+                    self._config.setdefault("position_highs", {})[symbol] = signal_result.price
+                    self._save_config()
+                config = dict(self._config)
 
                 # Phase 2a: Place broker-side stop-loss for Questrade BUY
                 if config["broker"] == "questrade" and isinstance(session, _QuestradeSession):
@@ -640,6 +677,12 @@ class AutoTraderEngine:
                 notifications.alert_trade_placed(symbol, side, qty, signal_result.price, confidence, order_id)
             else:
                 positions_by_symbol.pop(symbol, None)
+                # Clear trailing stop tracking for this closed position.
+                with self._lock:
+                    self._config.get("position_entries", {}).pop(symbol, None)
+                    self._config.get("position_highs", {}).pop(symbol, None)
+                    self._save_config()
+                config = dict(self._config)
                 notifications.alert_trade_placed(symbol, side, qty, signal_result.price, confidence, order_id)
 
             return _decision(
