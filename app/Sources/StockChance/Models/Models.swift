@@ -205,6 +205,9 @@ struct AutoTraderConfigRequest: Encodable {
     var alpacaApiSecretKey: String?
     var questradeRefreshToken: String?
     var questradeAccountNumber: String?
+    var stopLossPct: Double = 3.0
+    var maxDailyLossPct: Double = 5.0
+    var requireMultiTimeframe: Bool = false
 }
 
 struct AutoTraderConfig: Codable, Hashable {
@@ -222,6 +225,9 @@ struct AutoTraderConfig: Codable, Hashable {
     var confirmedRealMoney: Bool
     var alpacaConfigured: Bool
     var questradeConfigured: Bool
+    var stopLossPct: Double = 3.0
+    var maxDailyLossPct: Double = 5.0
+    var requireMultiTimeframe: Bool = false
 }
 
 /// One evaluation result from the auto-trader - a HOLD, a skipped trade with
@@ -818,4 +824,31 @@ struct DailyBriefingResponse: Codable, Hashable {
     var date: Date {
         ISO8601DateFormatter.flexible.date(from: generatedAt) ?? Date()
     }
+}
+
+// MARK: - Analytics Dashboard
+
+struct DailyPerf: Codable, Identifiable {
+    var date: String
+    var trades: Int
+    var pnl: Double
+    var wins: Int
+    var losses: Int
+    var id: String { date }
+}
+
+struct AnalyticsResponse: Codable {
+    var totalTrades: Int
+    var buys: Int
+    var sells: Int
+    var wins: Int
+    var losses: Int
+    var winRate: Double
+    var totalPnl: Double
+    var avgWin: Double
+    var avgLoss: Double
+    var largestWin: Double
+    var largestLoss: Double
+    var daily: [DailyPerf]
+    var periodDays: Int
 }

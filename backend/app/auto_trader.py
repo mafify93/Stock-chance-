@@ -187,6 +187,7 @@ class AutoTraderEngine:
     def __init__(self) -> None:
         self._lock = Lock()
         self._task: asyncio.Task | None = None
+        self._retrain_task: asyncio.Task | None = None
         self._config = self._load_config()
         self._log = self._load_log()
 
@@ -372,6 +373,52 @@ class AutoTraderEngine:
 
         session, session_error = self._build_session(config)
 
+        # --- Circuit breaker: track starting equity once per trading day ---
+        today = datetime.now(timezone.utc).date().isoformat()
+        if session is not None:
+            cb_date = config.get("circuit_breaker_date")
+            if cb_date != today:
+                # New trading day — record starting equity
+                equity = None
+                if isinstance(session, _QuestradeSession):
+                    equity = session.get_equity()
+                elif isinstance(session, _AlpacaSession):
+                    try:
+                        acct = alpaca.get_account(session._api_key, session._api_secret, session._base_url)
+                        equity = float(acct.get("equity", 0))
+                    except Exception:  # noqa: BLE001
+                        equity = None
+                with self._lock:
+                    self._config["circuit_breaker_date"] = today
+                    if equity is not None:
+                        self._config["circuit_breaker_start_equity"] = equity
+                    self._save_config()
+                config = dict(self._config)
+
+            # Check circuit breaker
+            start_equity = config.get("circuit_breaker_start_equity")
+            max_daily_loss_pct = config.get("max_daily_loss_pct", 5.0)
+            if start_equity and start_equity > 0:
+                current_equity = None
+                if isinstance(session, _QuestradeSession):
+                    current_equity = session.get_equity()
+                elif isinstance(session, _AlpacaSession):
+                    try:
+                        acct = alpaca.get_account(session._api_key, session._api_secret, session._base_url)
+                        current_equity = float(acct.get("equity", 0))
+                    except Exception:  # noqa: BLE001
+                        current_equity = None
+                if current_equity is not None:
+                    loss_threshold = start_equity * (1 - max_daily_loss_pct / 100)
+                    if current_equity < loss_threshold:
+                        loss_pct = (start_equity - current_equity) / start_equity * 100
+                        logger.warning(
+                            "Circuit breaker triggered: equity %.2f < threshold %.2f (%.1f%% loss vs %.1f%% max)",
+                            current_equity, loss_threshold, loss_pct, max_daily_loss_pct,
+                        )
+                        notifications.alert_circuit_breaker(loss_pct, max_daily_loss_pct)
+                        return []
+
         positions_by_symbol: dict[str, dict] = {}
         if session is not None:
             try:
@@ -383,7 +430,6 @@ class AutoTraderEngine:
         if not symbols:
             return []
 
-        today = datetime.now(timezone.utc).date().isoformat()
         with self._lock:
             trades_today = sum(
                 1 for entry in self._log if entry["executed"] and entry["timestamp"].startswith(today)
@@ -463,6 +509,24 @@ class AutoTraderEngine:
         llm_result = ai_analyst.analyze(symbol, signal_dict, ml_result) if ai_analyst.configured() else None
         action, confidence = combine(signal_dict, ml_result, llm_result)
 
+        # --- Phase 4: Multi-timeframe confirmation (opt-in) ---
+        if config.get("require_multi_timeframe"):
+            try:
+                df_1h = yahoo.get_history(symbol, "60d", "1h")
+                signal_1h = analyze(symbol, df_1h)
+                daily_bullish = action in ("BUY", "STRONG_BUY")
+                daily_bearish = action in ("SELL", "STRONG_SELL")
+                h1_bullish = signal_1h.action in ("BUY", "STRONG_BUY")
+                h1_bearish = signal_1h.action in ("SELL", "STRONG_SELL")
+                agrees = (daily_bullish and h1_bullish) or (daily_bearish and h1_bearish)
+                if not agrees:
+                    return _decision(
+                        symbol, "HOLD", confidence, False,
+                        f"multi-timeframe disagreement: daily={action} 1h={signal_1h.action}",
+                    )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Multi-timeframe fetch failed for %s: %s", symbol, exc)
+
         if confidence < config["min_confidence"]:
             return _decision(symbol, action, confidence, False, f"confidence {confidence:.1f} below threshold {config['min_confidence']:.1f}")
 
@@ -477,17 +541,30 @@ class AutoTraderEngine:
 
         existing = positions_by_symbol.get(symbol)
 
-        if action == "BUY":
+        if action in ("BUY", "STRONG_BUY"):
             if existing:
                 return _decision(symbol, action, confidence, False, "already holding a position - not adding to it")
             max_open = config.get("max_open_positions", 0)
             if max_open and len(positions_by_symbol) >= max_open:
                 return _decision(symbol, action, confidence, False, f"max open positions reached ({max_open})")
-            qty = int(config["max_position_value"] // signal_result.price)
+
+            # Phase 2c: Volatility-based position sizing (ATR-14)
+            try:
+                atr = df["High"].sub(df["Low"]).rolling(14).mean().iloc[-1]
+                risk_budget = config["max_position_value"] * 0.02
+                qty_atr = int(risk_budget / atr) if atr > 0 else 0
+            except Exception:  # noqa: BLE001
+                qty_atr = 0
+            qty_fixed = int(config["max_position_value"] // signal_result.price)
+            if qty_atr > 0:
+                qty = max(1, min(qty_fixed, qty_atr))
+            else:
+                qty = qty_fixed
+
             if qty < 1:
                 return _decision(symbol, action, confidence, False, f"max position value ${config['max_position_value']:.2f} buys less than 1 share at ${signal_result.price:.2f}")
             side = "buy"
-        else:  # SELL
+        else:  # SELL / STRONG_SELL
             if not existing:
                 return _decision(symbol, action, confidence, False, "no position held - nothing to sell")
             qty = float(existing["qty"])
@@ -498,15 +575,57 @@ class AutoTraderEngine:
             return _decision(symbol, action, confidence, False, f"DRY RUN - would {side} {qty} {symbol} but live trading not confirmed (set confirmed_real_money)")
 
         try:
+            # Phase 2a: Before a Questrade SELL, cancel any active stop-loss order
+            if side == "sell" and config["broker"] == "questrade" and isinstance(session, _QuestradeSession):
+                existing_stop_id = config.get("stop_orders", {}).get(symbol)
+                if existing_stop_id:
+                    session.cancel_order(existing_stop_id)
+                    with self._lock:
+                        self._config.setdefault("stop_orders", {}).pop(symbol, None)
+                        self._save_config()
+                    config = dict(self._config)
+
             order = session.place_order(symbol, qty, side)
+            order_id = str(order.get("id", ""))
+
             # Keep the in-cycle position map in sync so the open-position cap
             # and "already holding" checks stay accurate across this run.
             if side == "buy":
                 positions_by_symbol[symbol] = {"symbol": symbol, "qty": qty}
+
+                # Phase 2a: Place broker-side stop-loss for Questrade BUY
+                if config["broker"] == "questrade" and isinstance(session, _QuestradeSession):
+                    stop_loss_pct = config.get("stop_loss_pct", 3.0)
+                    stop_price = round(signal_result.price * (1 - stop_loss_pct / 100), 4)
+                    limit_price = round(stop_price * 0.99, 4)
+                    try:
+                        stop_order = session.place_stop_limit_order(symbol, qty, stop_price, limit_price)
+                        stop_order_id = str(stop_order.get("id", ""))
+                        with self._lock:
+                            self._config.setdefault("stop_orders", {})[symbol] = stop_order_id
+                            self._save_config()
+                        config = dict(self._config)
+                        logger.info(
+                            "Placed stop-limit order %s for %s at stop=%.4f limit=%.4f",
+                            stop_order_id, symbol, stop_price, limit_price,
+                        )
+                        notifications.alert_stop_loss_placed(symbol, qty, stop_price, signal_result.price)
+                    except Exception:  # noqa: BLE001
+                        logger.exception("Failed to place stop-loss order for %s", symbol)
+
+                notifications.alert_trade_placed(symbol, side, qty, signal_result.price, confidence, order_id)
             else:
                 positions_by_symbol.pop(symbol, None)
-            return _decision(symbol, action, confidence, True, f"placed {side} order for {qty} {symbol}", order_id=str(order.get("id", "")))
+                notifications.alert_trade_placed(symbol, side, qty, signal_result.price, confidence, order_id)
+
+            return _decision(
+                symbol, action, confidence, True,
+                f"placed {side} order for {qty} {symbol}",
+                order_id=order_id,
+                entry_price=signal_result.price,
+            )
         except (alpaca.AlpacaError, questrade.QuestradeError) as exc:
+            notifications.alert_order_failed(symbol, side, str(exc))
             return _decision(symbol, action, confidence, False, f"order failed: {exc}")
 
     # --- background task --------------------------------------------------
@@ -523,17 +642,53 @@ class AutoTraderEngine:
                 logger.exception("Auto-trader loop iteration failed")
             await asyncio.sleep(max(60, interval_minutes * 60))
 
+    async def _retrain_loop(self) -> None:
+        """Phase 4: Retrain the ML model weekly as a background task."""
+        _RETRAIN_INTERVAL = 7 * 24 * 3600  # 7 days in seconds
+        while True:
+            await asyncio.sleep(_RETRAIN_INTERVAL)
+            logger.info("Starting weekly ML model retraining...")
+            try:
+                import subprocess
+                result = await asyncio.to_thread(
+                    subprocess.run,
+                    ["python", "-m", "scripts.train_ml_model"],
+                    capture_output=True,
+                    text=True,
+                    timeout=3600,
+                )
+                if result.returncode == 0:
+                    logger.info("ML model retrained successfully")
+                    ml_predictor._loaded = False  # force reload on next prediction
+                else:
+                    logger.error("ML retraining failed (exit %d): %s", result.returncode, result.stderr)
+            except Exception:  # noqa: BLE001
+                logger.exception("ML retraining subprocess failed")
+
     def start(self) -> None:
         if self._task is None:
             self._task = asyncio.create_task(self._loop())
+        if self._retrain_task is None:
+            self._retrain_task = asyncio.create_task(self._retrain_loop())
 
     def stop(self) -> None:
         if self._task is not None:
             self._task.cancel()
             self._task = None
+        if self._retrain_task is not None:
+            self._retrain_task.cancel()
+            self._retrain_task = None
 
 
-def _decision(symbol: str, action: str, confidence: float, executed: bool, reason: str, order_id: str | None = None) -> dict:
+def _decision(
+    symbol: str,
+    action: str,
+    confidence: float,
+    executed: bool,
+    reason: str,
+    order_id: str | None = None,
+    entry_price: float | None = None,
+) -> dict:
     return {
         "symbol": symbol,
         "action": action,
@@ -541,6 +696,7 @@ def _decision(symbol: str, action: str, confidence: float, executed: bool, reaso
         "executed": executed,
         "reason": reason,
         "order_id": order_id,
+        "entry_price": entry_price,
     }
 
 

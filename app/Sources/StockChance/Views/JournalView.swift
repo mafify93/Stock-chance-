@@ -4,12 +4,21 @@ import SwiftUI
 /// manually-logged "Sold" exits from tracked positions, with running win
 /// rate and total realized P/L.
 struct JournalView: View {
+    @EnvironmentObject private var apiConfig: APIConfig
     @StateObject private var store = JournalStore.shared
+    @StateObject private var analyticsVM = AnalyticsViewModel()
 
     var body: some View {
         List {
             Section {
                 summaryCard
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+            }
+
+            Section {
+                autoTraderPerformanceCard
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
                     .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
@@ -41,6 +50,9 @@ struct JournalView: View {
         .listStyle(.plain)
         .luxuryBackground()
         .navigationTitle("Trade Journal")
+        .task {
+            await analyticsVM.load(baseURL: apiConfig.baseURL)
+        }
     }
 
     private var summaryCard: some View {
@@ -57,6 +69,52 @@ struct JournalView: View {
                 .foregroundStyle(Theme.textSecondary)
         }
         .luxuryCard()
+    }
+
+    @ViewBuilder
+    private var autoTraderPerformanceCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("AUTO-TRADER HISTORY")
+                .luxuryEyebrow()
+            if analyticsVM.isLoading {
+                ProgressView()
+                    .frame(maxWidth: .infinity, alignment: .center)
+            } else if let a = analyticsVM.analytics, a.totalTrades > 0 {
+                HStack(spacing: 16) {
+                    autoStatPair("Trades", "\(a.totalTrades)")
+                    autoStatPair("Win Rate", a.winRate > 0 ? "\(Int(a.winRate))%" : "—")
+                    autoStatPair("Total P&L", pnlText(a.totalPnl))
+                }
+                HStack(spacing: 16) {
+                    autoStatPair("Avg Win", pnlText(a.avgWin))
+                    autoStatPair("Avg Loss", pnlText(a.avgLoss))
+                    autoStatPair("Period", "\(a.periodDays)d")
+                }
+            } else {
+                Text("No auto-trader history yet")
+                    .font(.caption)
+                    .foregroundStyle(Theme.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .luxuryCard()
+    }
+
+    private func pnlText(_ value: Double) -> String {
+        let formatted = abs(value).formatted(.currency(code: "USD"))
+        return value >= 0 ? "+\(formatted)" : "-\(formatted)"
+    }
+
+    private func autoStatPair(_ title: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(Theme.textSecondary)
+            Text(value)
+                .font(.subheadline.weight(.semibold).monospacedDigit())
+                .foregroundStyle(Theme.textPrimary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var plText: String {

@@ -263,6 +263,10 @@ struct APIClient {
     func dailyBriefing(_ request: DailyBriefingRequest) async throws -> DailyBriefingResponse {
         try await post("/api/ai/daily-briefing", body: request)
     }
+
+    func autoTraderAnalytics() async throws -> AnalyticsResponse {
+        try await get("/api/analytics/performance")
+    }
 }
 
 /// Empty JSON body (`{}`) for POST endpoints that take no request payload.
