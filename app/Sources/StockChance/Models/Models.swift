@@ -264,6 +264,22 @@ struct AutoTraderStatus: Codable, Hashable {
     var disclaimer: String
 }
 
+struct AutoTraderPosition: Codable, Identifiable, Hashable {
+    var symbol: String
+    var entryPrice: Double
+    var currentPrice: Double?
+    var pnlPct: Double?
+    var pnlDollar: Double?
+
+    var id: String { symbol }
+}
+
+struct SellAllResponse: Codable {
+    var sold: [String]
+    var errors: [[String: String]]
+    var message: String
+}
+
 // MARK: - Tonight's Picks (nightly AI deep-research scan)
 
 /// A single "Tonight's Picks" recommendation: a symbol, an action (BUY or

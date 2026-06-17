@@ -787,6 +787,120 @@ class AutoTraderEngine:
             except Exception:  # noqa: BLE001
                 logger.exception("ML retraining subprocess failed")
 
+    # --- holdings / emergency sell ----------------------------------------
+
+    def get_positions_with_pnl(self) -> list[models.AutoTraderPosition]:
+        """Return tracked open positions enriched with current price and P&L."""
+        with self._lock:
+            entries = dict(self._config.get("position_entries", {}))
+
+        result = []
+        for symbol, entry_price in entries.items():
+            current_price = None
+            pnl_pct = None
+            pnl_dollar = None
+            try:
+                df = yahoo.get_history(symbol, "5d", "1d")
+                if not df.empty:
+                    current_price = float(df["Close"].iloc[-1])
+                    if entry_price and entry_price > 0:
+                        pnl_pct = (current_price - entry_price) / entry_price * 100
+                        pnl_dollar = current_price - entry_price
+            except Exception:  # noqa: BLE001
+                logger.warning("Could not fetch current price for %s", symbol)
+            result.append(models.AutoTraderPosition(
+                symbol=symbol,
+                entry_price=entry_price,
+                current_price=current_price,
+                pnl_pct=pnl_pct,
+                pnl_dollar=pnl_dollar,
+            ))
+        return result
+
+    def sell_all(self) -> models.SellAllResponse:
+        """Emergency liquidation: sell every tracked position immediately."""
+        with self._lock:
+            config = dict(self._config)
+
+        entries = dict(config.get("position_entries", {}))
+        if not entries:
+            return models.SellAllResponse(sold=[], errors=[], message="No tracked positions to sell.")
+
+        session, session_error = self._build_session(config)
+        if session is None:
+            return models.SellAllResponse(
+                sold=[],
+                errors=[{"reason": session_error or "no broker credentials"}],
+                message=f"Cannot connect to broker: {session_error}",
+            )
+
+        try:
+            positions_by_symbol = session.get_positions()
+        except Exception as exc:  # noqa: BLE001
+            return models.SellAllResponse(
+                sold=[],
+                errors=[{"reason": f"Failed to fetch broker positions: {exc}"}],
+                message=f"Failed to fetch broker positions: {exc}",
+            )
+
+        sold: list[str] = []
+        errors: list[dict] = []
+
+        for symbol in list(entries.keys()):
+            try:
+                # Cancel any pending stop-loss order first
+                if config.get("broker") == "questrade" and isinstance(session, _QuestradeSession):
+                    stop_id = config.get("stop_orders", {}).get(symbol)
+                    if stop_id:
+                        session.cancel_order(stop_id)
+
+                broker_pos = positions_by_symbol.get(symbol)
+                if broker_pos is None:
+                    # Position already closed broker-side - just clean up tracking
+                    with self._lock:
+                        self._config.get("position_entries", {}).pop(symbol, None)
+                        self._config.get("position_highs", {}).pop(symbol, None)
+                        self._config.get("stop_orders", {}).pop(symbol, None)
+                        self._save_config()
+                    config = dict(self._config)
+                    continue
+
+                qty = float(broker_pos["qty"])
+                if qty <= 0:
+                    continue
+
+                order = session.place_order(symbol, qty, "sell")
+                order_id = str(order.get("id", ""))
+
+                with self._lock:
+                    self._config.get("position_entries", {}).pop(symbol, None)
+                    self._config.get("position_highs", {}).pop(symbol, None)
+                    self._config.get("stop_orders", {}).pop(symbol, None)
+                    self._save_config()
+                config = dict(self._config)
+
+                sold.append(symbol)
+                self._record({
+                    "symbol": symbol,
+                    "action": "SELL",
+                    "combined_confidence": 100.0,
+                    "executed": True,
+                    "reason": "emergency sell-all",
+                    "order_id": order_id,
+                })
+            except Exception as exc:  # noqa: BLE001
+                errors.append({"symbol": symbol, "reason": str(exc)})
+                logger.exception("sell_all failed for %s", symbol)
+
+        if sold and not errors:
+            message = f"Sold {len(sold)} position(s): {', '.join(sold)}"
+        elif sold:
+            message = f"Sold {len(sold)}: {', '.join(sold)}. {len(errors)} error(s)."
+        else:
+            message = "All sells failed. Check broker connection and try again."
+
+        return models.SellAllResponse(sold=sold, errors=errors, message=message)
+
     def start(self) -> None:
         if self._task is None:
             self._task = asyncio.create_task(self._loop())

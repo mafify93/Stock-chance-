@@ -38,12 +38,14 @@ struct AutoTraderView: View {
     @State private var hasLoadedConfig = false
     @State private var showEnableConfirmation = false
     @State private var showRealMoneyConfirmation = false
+    @State private var showSellAllConfirmation = false
     @State private var saveMessage: String?
 
     var body: some View {
         NavigationStack {
             Form {
                 statusSection
+                holdingsSection
                 brokerSection
                 symbolsSection
                 strategySection
@@ -111,6 +113,82 @@ struct AutoTraderView: View {
             }
         } message: {
             Text("The AI Auto-Trader will automatically evaluate your chosen symbols and place buy/sell orders based on its own analysis, with no further confirmation from you. Double-check your symbols, position size, and environment below before enabling.")
+        }
+    }
+
+    @ViewBuilder
+    private var holdingsSection: some View {
+        Section {
+            if viewModel.positions.isEmpty && !viewModel.isLoading {
+                Text("No tracked positions")
+                    .foregroundStyle(Theme.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+            } else {
+                ForEach(viewModel.positions) { pos in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(pos.symbol)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(Theme.textPrimary)
+                            if let current = pos.currentPrice {
+                                Text("Entry $\(pos.entryPrice, specifier: "%.2f") → Now $\(current, specifier: "%.2f")")
+                                    .font(.caption)
+                                    .foregroundStyle(Theme.textSecondary)
+                            } else {
+                                Text("Entry $\(pos.entryPrice, specifier: "%.2f")")
+                                    .font(.caption)
+                                    .foregroundStyle(Theme.textSecondary)
+                            }
+                        }
+                        Spacer()
+                        if let pct = pos.pnlPct {
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text("\(pct >= 0 ? "+" : "")\(pct, specifier: "%.2f")%")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(pct >= 0 ? Theme.profit : Theme.loss)
+                                if let dollar = pos.pnlDollar {
+                                    Text("\(dollar >= 0 ? "+" : "")$\(dollar, specifier: "%.2f")")
+                                        .font(.caption)
+                                        .foregroundStyle(pct >= 0 ? Theme.profit : Theme.loss)
+                                }
+                            }
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+
+            Button(role: .destructive) {
+                showSellAllConfirmation = true
+            } label: {
+                if viewModel.isSelling {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                } else {
+                    Label("Sell All Positions", systemImage: "exclamationmark.triangle.fill")
+                        .frame(maxWidth: .infinity)
+                        .foregroundStyle(viewModel.positions.isEmpty ? Theme.textSecondary : Theme.loss)
+                }
+            }
+            .disabled(viewModel.positions.isEmpty || viewModel.isSelling)
+
+            if let msg = viewModel.sellMessage {
+                Text(msg)
+                    .font(.caption)
+                    .foregroundStyle(msg.hasPrefix("✅") ? Theme.profit : Theme.loss)
+            }
+        } header: {
+            Text("Current Holdings")
+        } footer: {
+            Text("Positions tracked by the auto-trader. \"Sell All\" immediately liquidates every tracked position through your broker and cancels any pending stop orders - use only in emergencies.")
+        }
+        .alert("Sell All Positions?", isPresented: $showSellAllConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Sell Everything Now", role: .destructive) {
+                Task { await viewModel.sellAll(baseURL: apiConfig.baseURL) }
+            }
+        } message: {
+            Text("This will immediately place SELL orders for all \(viewModel.positions.count) tracked position(s) through your broker. This cannot be undone.")
         }
     }
 

@@ -236,6 +236,14 @@ struct APIClient {
         try await post("/api/ai/auto-trader/run-now", body: EmptyBody())
     }
 
+    func autoTraderPositions() async throws -> [AutoTraderPosition] {
+        try await get("/api/ai/auto-trader/positions")
+    }
+
+    func sellAllPositions() async throws -> SellAllResponse {
+        try await post("/api/ai/auto-trader/sell-all", body: EmptyBody())
+    }
+
     // MARK: - Tonight's Picks
 
     func nightScanStatus() async throws -> NightScanStatus {
