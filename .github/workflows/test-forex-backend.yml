@@ -1,0 +1,29 @@
+name: Test Forex Chance backend
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "forex/backend/**"
+      - ".github/workflows/test-forex-backend.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        working-directory: forex/backend
+        run: |
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Run tests
+        working-directory: forex/backend
+        run: pytest -q

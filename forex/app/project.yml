@@ -1,0 +1,35 @@
+name: ForexChance
+options:
+  bundleIdPrefix: com.forexchance
+  deploymentTarget:
+    iOS: "16.0"
+    macOS: "13.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    PRODUCT_BUNDLE_IDENTIFIER: com.forexchance.app
+    ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+
+    GENERATE_INFOPLIST_FILE: YES
+    INFOPLIST_KEY_CFBundleDisplayName: "Forex Chance"
+    INFOPLIST_KEY_NSLocalNetworkUsageDescription: "Forex Chance connects to your Forex Chance backend server on your local network."
+
+    # iOS uses a fully self-contained Info.plist (with UILaunchScreen, scene
+    # manifest, etc.) instead of the generated one - see Info-iOS.plist.
+    "GENERATE_INFOPLIST_FILE[sdk=iphone*]": NO
+    "INFOPLIST_FILE[sdk=iphone*]": Sources/ForexChance/Resources/Info-iOS.plist
+
+    "COMBINE_HIDPI_IMAGES[sdk=macosx*]": YES
+    "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": Sources/ForexChance/Resources/ForexChance-macOS.entitlements
+
+targets:
+  ForexChance:
+    type: application
+    platform: [iOS, macOS]
+    sources:
+      - path: Sources/ForexChance

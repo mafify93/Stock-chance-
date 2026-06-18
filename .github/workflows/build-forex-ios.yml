@@ -1,0 +1,54 @@
+name: Build Forex Chance iOS app
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "forex/app/**"
+      - ".github/workflows/build-forex-ios.yml"
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select latest Xcode
+        run: |
+          LATEST=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
+          echo "Using $LATEST"
+          sudo xcode-select -s "$LATEST"
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+        working-directory: forex/app
+
+      - name: Build unsigned app
+        run: |
+          xcodebuild \
+            -project ForexChance.xcodeproj \
+            -scheme ForexChance_iOS \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+        working-directory: forex/app
+
+      - name: Package IPA
+        run: |
+          cd forex/app/build/Build/Products/Release-iphoneos
+          mkdir Payload
+          cp -r ForexChance.app Payload/
+          zip -r ForexChance.ipa Payload
+        shell: bash
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ForexChance-iOS-ipa
+          path: forex/app/build/Build/Products/Release-iphoneos/ForexChance.ipa
