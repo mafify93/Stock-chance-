@@ -1,6 +1,9 @@
 import SwiftUI
 
 struct ContentView: View {
+    @EnvironmentObject private var apiConfig: APIConfig
+    @EnvironmentObject private var brokerStore: BrokerStore
+
     var body: some View {
         TabView {
             TodayView()
@@ -11,6 +14,9 @@ struct ContentView: View {
 
             ScreenerView()
                 .tabItem { Label("Screener", systemImage: "chart.bar.fill") }
+
+            AutoTraderView(apiConfig: apiConfig, brokerStore: brokerStore)
+                .tabItem { Label("Auto", systemImage: "bolt.fill") }
 
             PositionsView()
                 .tabItem { Label("Positions", systemImage: "briefcase.fill") }

@@ -221,6 +221,30 @@ def place_market_order(
     )
 
 
+def update_trade_stop_loss(
+    token: str,
+    account_id: str,
+    trade_id: str,
+    stop_loss_price: float,
+    pair: str,
+    base_url: str = PRACTICE_BASE_URL,
+) -> dict:
+    """Move the stop-loss on an existing open trade (e.g., to break-even)."""
+    decimals = pips.price_decimals(pair)
+    return _request(
+        "PUT",
+        f"/accounts/{account_id}/trades/{trade_id}/orders",
+        token,
+        base_url,
+        json={
+            "stopLoss": {
+                "price": f"{stop_loss_price:.{decimals}f}",
+                "timeInForce": "GTC",
+            }
+        },
+    )
+
+
 def close_trade(token: str, account_id: str, trade_id: str, base_url: str = PRACTICE_BASE_URL) -> dict:
     """Fully close a single open trade by its OANDA trade ID."""
     return _request(

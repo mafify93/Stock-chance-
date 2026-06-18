@@ -171,4 +171,24 @@ struct APIClient {
     func closePosition(_ request: CloseRequest, creds: OandaCredentials) async throws -> CloseResponse {
         try await send("/api/broker/close", method: "POST", body: request, headers: Self.headers(for: creds))
     }
+
+    // MARK: - Auto-Trader
+
+    func autoTraderStatus() async throws -> AutoTraderStatus {
+        try await get("/api/autotrader/status")
+    }
+
+    func startAutoTrader(_ request: AutoTraderStartRequest) async throws -> [String: String] {
+        try await send("/api/autotrader/start", method: "POST", body: request)
+    }
+
+    func stopAutoTrader() async throws -> [String: String] {
+        struct Empty: Encodable {}
+        return try await send("/api/autotrader/stop", method: "POST", body: Empty())
+    }
+
+    func emergencyClose() async throws -> [String: [String]] {
+        struct Empty: Encodable {}
+        return try await send("/api/autotrader/emergency-close", method: "POST", body: Empty())
+    }
 }

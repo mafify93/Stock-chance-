@@ -62,12 +62,23 @@ def from_pips(pair: str, pips: float) -> float:
     return pips * pip_size(pair)
 
 
-def pip_value_per_unit(pair: str, price: float) -> float:
-    """Approximate value of a one-pip move per unit traded, expressed in the
-    account's *quote* currency.
+def pip_value_per_unit(pair: str, price: float = 1.0) -> float:
+    """Approximate value of a one-pip move per unit traded, in USD account terms.
 
-    For a quote-currency-denominated account this is exact; for other account
-    currencies it's a close estimate (an FX conversion would be needed for the
-    precise figure, which OANDA itself applies on the real fill).
+    For USD-quoted pairs (EUR/USD, GBP/USD, AUD/USD, NZD/USD):
+        pip_value = pip_size  (exact — the USD rate cancels)
+    For USD-based pairs (USD/JPY, USD/CHF, USD/CAD):
+        pip_value = pip_size / spot  (varies with the exchange rate)
+    For cross pairs (EUR/JPY, GBP/JPY, etc.):
+        pip_value ≈ pip_size  (conservative underestimate — OANDA applies the
+        precise cross-rate conversion on fill, so this errs on the safe side
+        by producing slightly smaller unit counts)
     """
+    quote = quote_currency(pair)
+    base = base_currency(pair)
+    if quote == "USD":
+        return pip_size(pair)
+    if base == "USD" and price > 0:
+        return pip_size(pair) / price
+    # Cross pair — approximate; conservative (safer to under-size)
     return pip_size(pair)
