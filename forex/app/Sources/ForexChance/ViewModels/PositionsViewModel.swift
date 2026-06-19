@@ -31,13 +31,20 @@ final class PositionsViewModel: ObservableObject {
 
         let creds = store.credentials(for: environment)
         let client = APIClient(baseURL: APIConfig.shared.baseURL)
+
+        // Load the two independently: a failure (or cancellation) of one
+        // shouldn't blank out the other. The account summary is the more
+        // important of the two, so surface its error if it fails.
         do {
-            async let accountResult = client.account(creds: creds)
-            async let positionsResult = client.positions(creds: creds)
-            account = try await accountResult
-            positions = try await positionsResult
+            account = try await client.account(creds: creds)
         } catch {
-            errorMessage = error.localizedDescription
+            if !isCancellation(error) { errorMessage = error.localizedDescription }
+        }
+
+        do {
+            positions = try await client.positions(creds: creds)
+        } catch {
+            if !isCancellation(error) { errorMessage = error.localizedDescription }
         }
     }
 

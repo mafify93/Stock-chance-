@@ -219,8 +219,28 @@ struct AutoTraderView: View {
                 .tint(Theme.accent)
                 .font(.subheadline)
                 .foregroundColor(.white)
+
+            if vm.status?.running == true {
+                Text("Changes apply to the running bot immediately.")
+                    .font(.caption2)
+                    .foregroundColor(Theme.textSecondary)
+            }
         }
         .cardStyle()
+        // Push edits to a running bot. Coarse slider steps keep this to a
+        // handful of calls, and it's a no-op while the bot is stopped.
+        .onChange(of: vm.riskPct) { _ in applyConfig() }
+        .onChange(of: vm.rrRatio) { _ in applyConfig() }
+        .onChange(of: vm.dailyLossLimitPct) { _ in applyConfig() }
+        .onChange(of: vm.minConfidence) { _ in applyConfig() }
+        .onChange(of: vm.maxSpreadPips) { _ in applyConfig() }
+        .onChange(of: vm.maxPositions) { _ in applyConfig() }
+        .onChange(of: vm.maxTradesPerDay) { _ in applyConfig() }
+        .onChange(of: vm.sessionFilter) { _ in applyConfig() }
+    }
+
+    private func applyConfig() {
+        Task { await vm.applyConfigIfRunning() }
     }
 
     // MARK: - Emergency section

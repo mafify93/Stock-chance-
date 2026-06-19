@@ -22,6 +22,12 @@ final class AutoTraderViewModel: ObservableObject {
     private let client: APIClient
     private let brokerStore: BrokerStore
 
+    /// We sync the config sliders/toggles from the server only on the first
+    /// load. After that they're owned by the user - otherwise the 15s status
+    /// poll would overwrite an edit in progress (e.g. snapping the session
+    /// filter toggle back on the moment you turn it off).
+    private var hasSyncedConfig = false
+
     init(client: APIClient, brokerStore: BrokerStore) {
         self.client = client
         self.brokerStore = brokerStore
@@ -35,17 +41,48 @@ final class AutoTraderViewModel: ObservableObject {
         do {
             let s = try await client.autoTraderStatus()
             status = s
-            // Sync UI sliders with current server config
-            riskPct = s.config.riskPct * 100
-            rrRatio = s.config.rrRatio
-            maxPositions = s.config.maxPositions
-            maxTradesPerDay = s.config.maxTradesPerDay
-            dailyLossLimitPct = s.config.dailyLossLimitPct * 100
-            minConfidence = s.config.minConfidence * 100
-            maxSpreadPips = s.config.maxSpreadPips
-            sessionFilter = s.config.sessionFilter
+            if !hasSyncedConfig {
+                syncControls(from: s.config)
+                hasSyncedConfig = true
+            }
         } catch {
-            errorMessage = error.localizedDescription
+            if !isCancellation(error) {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func syncControls(from config: AutoTraderConfig) {
+        riskPct = config.riskPct * 100
+        rrRatio = config.rrRatio
+        maxPositions = config.maxPositions
+        maxTradesPerDay = config.maxTradesPerDay
+        dailyLossLimitPct = config.dailyLossLimitPct * 100
+        minConfidence = config.minConfidence * 100
+        maxSpreadPips = config.maxSpreadPips
+        sessionFilter = config.sessionFilter
+    }
+
+    /// Push the current control values to a *running* bot. No-op when the bot
+    /// is stopped - those values are sent in full when it's next started.
+    func applyConfigIfRunning() async {
+        guard status?.running == true else { return }
+        let patch = AutoTraderConfigPatch(
+            riskPct: riskPct / 100,
+            maxPositions: maxPositions,
+            maxTradesPerDay: maxTradesPerDay,
+            dailyLossLimitPct: dailyLossLimitPct / 100,
+            rrRatio: rrRatio,
+            maxSpreadPips: maxSpreadPips,
+            minConfidence: minConfidence / 100,
+            sessionFilter: sessionFilter
+        )
+        do {
+            try await client.updateAutoTraderConfig(patch)
+        } catch {
+            if !isCancellation(error) {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -102,7 +139,9 @@ final class AutoTraderViewModel: ObservableObject {
             await loadStatus()
             startPolling()
         } catch {
-            errorMessage = error.localizedDescription
+            if !isCancellation(error) {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -115,7 +154,9 @@ final class AutoTraderViewModel: ObservableObject {
             stopPolling()
             await loadStatus()
         } catch {
-            errorMessage = error.localizedDescription
+            if !isCancellation(error) {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -134,7 +175,9 @@ final class AutoTraderViewModel: ObservableObject {
             stopPolling()
             await loadStatus()
         } catch {
-            errorMessage = error.localizedDescription
+            if !isCancellation(error) {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 }

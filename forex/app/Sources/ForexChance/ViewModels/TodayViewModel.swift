@@ -18,7 +18,7 @@ final class TodayViewModel: ObservableObject {
         do {
             session = try await client.marketSession()
         } catch {
-            errorMessage = error.localizedDescription
+            if !isCancellation(error) { errorMessage = error.localizedDescription }
         }
 
         guard let creds = BrokerStore.shared.dataCredentials else {
@@ -29,8 +29,9 @@ final class TodayViewModel: ObservableObject {
 
         do {
             picks = try await client.topPick(count: 5, creds: creds).picks
+            errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            if !isCancellation(error) { errorMessage = error.localizedDescription }
         }
         isLoading = false
     }

@@ -16,6 +16,33 @@ enum APIError: LocalizedError {
     }
 }
 
+/// True when an error is just a cancelled request (view disappeared, task
+/// superseded) rather than a real failure. View models use this to avoid
+/// showing a scary "cancelled" message for a request the user implicitly
+/// abandoned.
+func isCancellation(_ error: Error) -> Bool {
+    if error is CancellationError { return true }
+    if let urlError = error as? URLError, urlError.code == .cancelled { return true }
+    if let apiError = error as? APIError, case .transport(let underlying) = apiError {
+        return isCancellation(underlying)
+    }
+    return false
+}
+
+/// Transport errors worth retrying once the free-tier backend has had a
+/// moment to wake up from a cold start. Cancellations are deliberately
+/// excluded so abandoned requests aren't retried.
+private func isRetryableTransport(_ error: Error) -> Bool {
+    guard let urlError = error as? URLError else { return false }
+    switch urlError.code {
+    case .timedOut, .cannotConnectToHost, .cannotFindHost,
+         .networkConnectionLost, .dnsLookupFailed, .badServerResponse:
+        return true
+    default:
+        return false
+    }
+}
+
 /// Thin async/await client for the Forex Chance backend (see /forex/backend).
 ///
 /// OANDA credentials are passed per-request as headers - the backend never
@@ -48,7 +75,9 @@ struct APIClient {
     // MARK: - Core requests
 
     private func get<T: Decodable>(_ path: String, query: [String: String] = [:], headers: [String: String] = [:]) async throws -> T {
-        var components = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
+        guard var components = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false) else {
+            throw APIError.server(status: 0, message: "Invalid backend URL. Check Settings > Backend.")
+        }
         if !query.isEmpty {
             components.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
         }
@@ -62,7 +91,9 @@ struct APIClient {
         request.timeoutInterval = 120
         for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
 
-        return try await send(request)
+        // GETs are idempotent, so retry a couple of times to ride out a
+        // free-tier backend waking from sleep.
+        return try await send(request, retries: 2)
     }
 
     private func send<T: Decodable, B: Encodable>(_ path: String, method: String, body: B, headers: [String: String] = [:]) async throws -> T {
@@ -80,30 +111,52 @@ struct APIClient {
         return try await send(request)
     }
 
-    private func send<T: Decodable>(_ request: URLRequest) async throws -> T {
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await URLSession.shared.data(for: request)
-        } catch {
-            throw APIError.transport(error)
-        }
+    private func send<T: Decodable>(_ request: URLRequest, retries: Int = 0) async throws -> T {
+        var attempt = 0
+        while true {
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
 
-        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-            var message = "HTTP \(http.statusCode)"
-            if let detail = try? Self.decoder.decode(ErrorDetail.self, from: data) {
-                message = detail.detail
-            } else if let text = String(data: data, encoding: .utf8), !text.isEmpty {
-                message = text
+                if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+                    // Gateway errors usually mean the free-tier host is still
+                    // waking up; give it a moment and try again.
+                    if attempt < retries, [502, 503, 504].contains(http.statusCode) {
+                        attempt += 1
+                        try? await Task.sleep(nanoseconds: Self.backoffNanos(attempt))
+                        continue
+                    }
+                    var message = "HTTP \(http.statusCode)"
+                    if let detail = try? Self.decoder.decode(ErrorDetail.self, from: data) {
+                        message = detail.detail
+                    } else if let text = String(data: data, encoding: .utf8), !text.isEmpty {
+                        message = text
+                    }
+                    throw APIError.server(status: http.statusCode, message: message)
+                }
+
+                do {
+                    return try Self.decoder.decode(T.self, from: data)
+                } catch {
+                    throw APIError.decoding(error)
+                }
+            } catch let error as APIError {
+                throw error  // already classified (server/decoding) - don't retry
+            } catch {
+                // Transport-level failure from URLSession.
+                if attempt < retries, isRetryableTransport(error) {
+                    attempt += 1
+                    try? await Task.sleep(nanoseconds: Self.backoffNanos(attempt))
+                    continue
+                }
+                throw APIError.transport(error)
             }
-            throw APIError.server(status: http.statusCode, message: message)
         }
+    }
 
-        do {
-            return try Self.decoder.decode(T.self, from: data)
-        } catch {
-            throw APIError.decoding(error)
-        }
+    /// Exponential backoff: ~1s, 2s, 4s.
+    private static func backoffNanos(_ attempt: Int) -> UInt64 {
+        let seconds = pow(2.0, Double(max(0, attempt - 1)))
+        return UInt64(seconds * 1_000_000_000)
     }
 
     private struct ErrorDetail: Decodable { var detail: String }
@@ -185,6 +238,12 @@ struct APIClient {
     func stopAutoTrader() async throws -> [String: String] {
         struct Empty: Encodable {}
         return try await send("/api/autotrader/stop", method: "POST", body: Empty())
+    }
+
+    /// Live-tune the running bot's config without restarting it.
+    func updateAutoTraderConfig(_ patch: AutoTraderConfigPatch) async throws {
+        struct Ack: Decodable {}
+        let _: Ack = try await send("/api/autotrader/config", method: "PATCH", body: patch)
     }
 
     func emergencyClose() async throws -> [String: [String]] {

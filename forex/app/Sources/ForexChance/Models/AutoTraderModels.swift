@@ -95,3 +95,16 @@ struct AutoTraderStartRequest: Codable {
     var sessionFilter: Bool?
     var pairs: [String]?
 }
+
+// MARK: - Config patch (live-tune a running bot)
+
+struct AutoTraderConfigPatch: Codable {
+    var riskPct: Double?
+    var maxPositions: Int?
+    var maxTradesPerDay: Int?
+    var dailyLossLimitPct: Double?
+    var rrRatio: Double?
+    var maxSpreadPips: Double?
+    var minConfidence: Double?
+    var sessionFilter: Bool?
+}

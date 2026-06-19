@@ -39,7 +39,7 @@ final class PairDetailViewModel: ObservableObject {
         do {
             signal = try await signalResult
         } catch {
-            errorMessage = error.localizedDescription
+            if !isCancellation(error) { errorMessage = error.localizedDescription }
         }
         daySignal = try? await dayResult
         candles = (try? await candleResult) ?? []

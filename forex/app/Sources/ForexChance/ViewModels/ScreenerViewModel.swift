@@ -22,7 +22,7 @@ final class ScreenerViewModel: ObservableObject {
         do {
             response = try await client.screener(top: 12, creds: creds)
         } catch {
-            errorMessage = error.localizedDescription
+            if !isCancellation(error) { errorMessage = error.localizedDescription }
         }
     }
 }
