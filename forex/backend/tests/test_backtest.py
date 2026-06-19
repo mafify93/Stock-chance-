@@ -156,3 +156,56 @@ class TestH1TrendFilter:
         trades_on, _ = simulate_pair("EUR_USD", df, cfg_on, 1.0, 1000.0)
 
         assert len(trades_on) == len(trades_off)
+
+
+class TestBreakevenStop:
+    def test_breakeven_leaves_entry_logic_identical(self):
+        # Break-even is an exit rule, so the *first* trade (nothing precedes it
+        # to shift the resume point) must enter at exactly the same price/stop/
+        # target with the rule on vs off. Later entries can legitimately differ
+        # because an earlier exit moves where the one-position scanner resumes.
+        df = _trending_m5()
+
+        cfg_off = AutoTraderConfig()
+        cfg_off.session_filter = False
+        cfg_off.h1_trend_filter = False
+        cfg_off.breakeven_stop = False
+        trades_off, _ = simulate_pair("EUR_USD", df, cfg_off, 1.0, 1000.0)
+
+        cfg_on = AutoTraderConfig()
+        cfg_on.session_filter = False
+        cfg_on.h1_trend_filter = False
+        cfg_on.breakeven_stop = True
+        trades_on, _ = simulate_pair("EUR_USD", df, cfg_on, 1.0, 1000.0)
+
+        assert trades_on and trades_off
+        a, b = trades_on[0], trades_off[0]
+        assert a.entry_time == b.entry_time
+        assert a.entry == b.entry
+        assert a.stop == b.stop
+        assert a.target == b.target
+
+    def test_breakeven_can_produce_scratch_exits(self):
+        # A choppy series that repeatedly pokes 1R then reverses should yield at
+        # least one "breakeven" exit when the rule is on.
+        n = 600
+        idx = pd.date_range("2024-03-04 07:00", periods=n, freq="5min", tz="UTC")
+        # Sawtooth: rises enough to arm break-even, then falls back through entry.
+        wave = np.sin(np.linspace(0, 80, n)) * 0.0015
+        close = 1.1000 + wave + np.cumsum(np.full(n, 0.000002))
+        df = pd.DataFrame(
+            {
+                "Open": close - 0.0001,
+                "High": close + 0.0005,
+                "Low": close - 0.0005,
+                "Close": close,
+                "Volume": np.full(n, 1000.0),
+            },
+            index=idx,
+        )
+        cfg = AutoTraderConfig()
+        cfg.session_filter = False
+        cfg.h1_trend_filter = False
+        cfg.breakeven_stop = True
+        trades, _ = simulate_pair("EUR_USD", df, cfg, 1.0, 1000.0)
+        assert any(t.outcome == "breakeven" for t in trades)

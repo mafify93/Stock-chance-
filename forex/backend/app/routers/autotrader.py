@@ -80,6 +80,7 @@ class BacktestRequest(BaseModel):
     min_confidence: float | None = None
     session_filter: bool | None = None
     h1_trend_filter: bool | None = None  # toggle the H1 trend filter for A/B tests
+    breakeven_stop: bool | None = None   # toggle the 1R break-even stop for A/B tests
     max_trades_per_day: int | None = None
     min_stop_pips: float | None = None
     max_stop_pips: float | None = None
@@ -224,7 +225,8 @@ async def backtest(req: BacktestRequest):
     cfg = AutoTraderConfig()
     for field in (
         "risk_pct", "rr_ratio", "min_confidence", "session_filter",
-        "h1_trend_filter", "max_trades_per_day", "min_stop_pips", "max_stop_pips",
+        "h1_trend_filter", "breakeven_stop",
+        "max_trades_per_day", "min_stop_pips", "max_stop_pips",
     ):
         val = getattr(req, field, None)
         if val is not None:

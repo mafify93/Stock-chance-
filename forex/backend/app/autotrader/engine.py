@@ -110,6 +110,9 @@ async def monitor_open_trades() -> None:
                     log.warning(f"AutoTrader: end-of-session close failed for {trade.pair}: {exc}")
         return
 
+    if not state.config.breakeven_stop:
+        return
+
     for trade in list(state.open_trades):
         try:
             await _check_breakeven(trade)

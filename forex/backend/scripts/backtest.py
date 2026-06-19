@@ -64,6 +64,8 @@ def main() -> int:
                    help="Trade around the clock instead of London/NY only")
     p.add_argument("--no-h1-filter", action="store_true",
                    help="Disable the H1 trend filter (for A/B comparison)")
+    p.add_argument("--no-breakeven", action="store_true",
+                   help="Disable the 1R break-even stop (for A/B comparison)")
     args = p.parse_args()
 
     token = os.environ.get("OANDA_TOKEN")
@@ -88,6 +90,8 @@ def main() -> int:
         cfg.session_filter = False
     if args.no_h1_filter:
         cfg.h1_trend_filter = False
+    if args.no_breakeven:
+        cfg.breakeven_stop = False
 
     pairs = [s.strip() for s in args.pairs.split(",") if s.strip()] or cfg.pairs
     bars = max(100, min(args.bars, 5000))

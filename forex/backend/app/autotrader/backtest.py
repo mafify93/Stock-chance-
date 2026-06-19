@@ -194,24 +194,43 @@ def simulate_pair(
             continue
 
         # ── Walk forward until stop or target is touched ──────────────────────
+        # When cfg.breakeven_stop is on, once price reaches 1R in our favour the
+        # stop is moved to entry + a 1-pip buffer — exactly as the live engine's
+        # _check_breakeven does. Adverse extreme is always checked first (worst
+        # case), and break-even only arms after that check, so a bar that spikes
+        # to 1R and collapses back to the original stop is still a full loss.
+        be_buffer = pip_module.from_pips(pair, 1.0)
+        if is_long:
+            be_trigger = entry + stop_delta
+            be_stop = entry + be_buffer
+        else:
+            be_trigger = entry - stop_delta
+            be_stop = entry - be_buffer
+
         outcome = "eod"
         exit_price = float(df["Close"].iloc[-1])
         exit_time = df.index[-1]
+        cur_stop = stop_price
+        armed = False
         j = entry_idx
         while j < n:
             hi = float(df["High"].iloc[j])
             lo = float(df["Low"].iloc[j])
             if is_long:
-                stop_hit = lo <= stop_price
+                stop_hit = lo <= cur_stop
                 tgt_hit = hi >= target_price
             else:
-                stop_hit = hi >= stop_price
+                stop_hit = hi >= cur_stop
                 tgt_hit = lo <= target_price
             if stop_hit:  # worst-case priority
-                outcome = "stop"
-                exit_price = stop_price
+                outcome = "breakeven" if armed else "stop"
+                exit_price = cur_stop
                 exit_time = df.index[j]
                 break
+            if cfg.breakeven_stop and not armed:
+                if (is_long and hi >= be_trigger) or (not is_long and lo <= be_trigger):
+                    armed = True
+                    cur_stop = be_stop
             if tgt_hit:
                 outcome = "target"
                 exit_price = target_price
@@ -343,6 +362,7 @@ def run_backtest(
             "min_confidence": cfg.min_confidence,
             "session_filter": cfg.session_filter,
             "h1_trend_filter": cfg.h1_trend_filter,
+            "breakeven_stop": cfg.breakeven_stop,
             "max_trades_per_day": cfg.max_trades_per_day,
             "min_stop_pips": cfg.min_stop_pips,
             "max_stop_pips": cfg.max_stop_pips,
