@@ -1,8 +1,10 @@
 """In-memory singleton that tracks the bot's runtime state.
 
 Credentials (OANDA token + account ID) are kept here after the user starts
-the bot via POST /api/autotrader/start. They are never written to disk; if
-the server restarts the bot stops and the user must re-start it from the app.
+the bot via POST /api/autotrader/start. They are also persisted — encrypted —
+by `persistence.py` to a file on a persistent disk, so the bot can auto-resume
+after a server restart instead of silently stopping. See that module for the
+encryption and key-management details.
 """
 from __future__ import annotations
 

@@ -25,6 +25,7 @@ from pydantic import BaseModel
 from ..autotrader.backtest import run_backtest
 from ..autotrader.config import AutoTraderConfig
 from ..autotrader.engine import resync_open_trades
+from ..autotrader.persistence import save_state
 from ..autotrader.state import bot_state
 from ..providers import oanda
 from ..providers.oanda import LIVE_BASE_URL, PRACTICE_BASE_URL
@@ -188,6 +189,9 @@ async def start_bot(req: StartRequest):
     # Re-populate open trades from OANDA so guards stay accurate after restarts.
     await resync_open_trades()
 
+    # Persist so the bot auto-resumes if the server restarts.
+    save_state()
+
     return {
         "status": "started",
         "environment": req.environment,
@@ -198,6 +202,7 @@ async def start_bot(req: StartRequest):
 async def stop_bot():
     with bot_state._lock:
         bot_state.running = False
+    save_state()  # persist the stop so a restart doesn't auto-resume
     return {"status": "stopped"}
 
 
@@ -209,6 +214,7 @@ async def update_config(patch: ConfigPatch):
         if hasattr(cfg, field):
             setattr(cfg, field, val)
             updated.append(field)
+    save_state()
     return {"updated": updated, "config": cfg.__dict__}
 
 
@@ -310,4 +316,5 @@ async def emergency_close():
         except Exception as exc:
             errors.append(f"{trade.pair}: {exc}")
 
+    save_state()  # persist halted state so a restart stays halted
     return {"closed": closed, "errors": errors}

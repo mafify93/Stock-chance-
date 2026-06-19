@@ -6,7 +6,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .autotrader.engine import monitor_open_trades, scan_and_trade
+from .autotrader.engine import monitor_open_trades, resync_open_trades, scan_and_trade
+from .autotrader.persistence import load_into_state, save_state
 from .autotrader.state import bot_state
 from .routers import autotrader, broker, daytrade, pairs, screener, signal
 
@@ -46,16 +47,34 @@ async def _scan_job() -> None:
     try:
         await scan_and_trade()
         await monitor_open_trades()
+        # Checkpoint daily P&L, trade log, and halt state so a restart resumes
+        # from where we left off rather than re-trading the day from scratch.
+        save_state()
     except Exception as exc:
         log.error(f"AutoTrader scheduler error: {exc}")
 
 
 @app.on_event("startup")
 async def _startup() -> None:
+    # Reload persisted state first so the scheduler honours the saved config and
+    # the bot auto-resumes if it was running before the restart.
+    was_running = False
+    try:
+        was_running = load_into_state()
+    except Exception as exc:
+        log.error(f"AutoTrader: state reload failed: {exc}")
+
     interval = bot_state.config.scan_interval_minutes
     _scheduler.add_job(_scan_job, "interval", minutes=interval, id="autotrader_scan")
     _scheduler.start()
     log.info(f"AutoTrader scheduler started (every {interval} min)")
+
+    if was_running and bot_state.token and bot_state.account_id:
+        log.info("AutoTrader: persisted state was running — auto-resuming")
+        try:
+            await resync_open_trades()
+        except Exception as exc:
+            log.error(f"AutoTrader: auto-resume resync failed: {exc}")
 
 
 @app.on_event("shutdown")

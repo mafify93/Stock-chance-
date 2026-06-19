@@ -6,6 +6,14 @@ services:
     rootDir: forex/backend
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    disk:
+      name: bot-state
+      mountPath: /var/data
+      sizeGB: 1
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
+      - key: STATE_DIR
+        value: /var/data
+      - key: STATE_KEY
+        sync: false
