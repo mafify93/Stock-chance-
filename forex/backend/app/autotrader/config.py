@@ -19,7 +19,7 @@ class AutoTraderConfig:
 
     # --- Position management ---
     max_positions: int = 2          # max concurrent open bot positions
-    max_trades_per_day: int = 5     # daily trade cap — prevents over-trading
+    max_trades_per_day: int = 50    # daily trade cap
     daily_loss_limit_pct: float = 0.03  # halt if daily P&L < −3 % of start balance
 
     # --- Entry filters ---

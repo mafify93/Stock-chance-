@@ -23,6 +23,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from ..autotrader.config import AutoTraderConfig
+from ..autotrader.engine import resync_open_trades
 from ..autotrader.state import bot_state
 from ..providers import oanda
 
@@ -161,6 +162,9 @@ async def start_bot(req: StartRequest):
         bot_state.running = True
         bot_state.halted = False
         bot_state.halt_reason = ""
+
+    # Re-populate open trades from OANDA so guards stay accurate after restarts.
+    await resync_open_trades()
 
     return {
         "status": "started",

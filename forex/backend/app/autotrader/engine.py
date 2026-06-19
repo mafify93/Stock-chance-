@@ -58,9 +58,36 @@ def _correlation_allows(pair: str, is_buy: bool, open_trades: list) -> bool:
 
 
 async def monitor_open_trades() -> None:
-    """Move stop-loss to break-even on any trade that has reached 1R profit."""
+    """Move stop-loss to break-even on trades at 1R profit; flatten before session end."""
     state = bot_state
     if not state.running or not state.token:
+        return
+
+    now = datetime.now(timezone.utc)
+
+    # Flatten all positions 5 minutes before NY session closes (20:55 UTC).
+    # This prevents holding through the overnight gap when liquidity is thin
+    # and stops can slip significantly.
+    if state.config.session_filter and now.hour == 20 and now.minute >= 55:
+        open_trades = state.open_trades
+        if open_trades:
+            log.info("AutoTrader: end-of-session flatten — closing all positions before NY close")
+            for trade in list(open_trades):
+                try:
+                    await asyncio.to_thread(
+                        oanda.close_position,
+                        state.token,
+                        state.account_id,
+                        trade.pair,
+                        trade.side,
+                        state.base_url,
+                    )
+                    with state._lock:
+                        trade.status = "closed"
+                        trade.closed_at = now.isoformat()
+                    log.info(f"AutoTrader: end-of-session closed {trade.pair} ({trade.side})")
+                except Exception as exc:
+                    log.warning(f"AutoTrader: end-of-session close failed for {trade.pair}: {exc}")
         return
 
     for trade in list(state.open_trades):
@@ -127,6 +154,61 @@ async def _check_breakeven(trade) -> None:
         log.warning(f"AutoTrader {trade.pair}: BE move failed: {exc}")
 
 
+async def resync_open_trades() -> None:
+    """Pull live open trades from OANDA into bot_state on bot start.
+
+    This is the fix for the restart-amnesia bug: when the Render service
+    restarts, in-memory state is wiped. Without this, the bot forgets all
+    positions it previously opened, causing the max_positions and daily-loss
+    guards to reset to zero even though OANDA still holds those trades.
+
+    Called once from the /start endpoint. It re-populates open_trades with
+    whatever OANDA reports, so guards stay accurate across restarts.
+    """
+    state = bot_state
+    if not state.token or not state.account_id:
+        return
+
+    try:
+        live_trades = await asyncio.to_thread(
+            oanda.get_open_trades, state.token, state.account_id, state.base_url
+        )
+    except Exception as exc:
+        log.warning(f"AutoTrader: resync failed (non-fatal): {exc}")
+        return
+
+    known_ids = {t.trade_id for t in state.trades}
+    recovered = 0
+    for t in live_trades:
+        trade_id = str(t.get("id", ""))
+        if not trade_id or trade_id in known_ids:
+            continue
+        instr = t.get("instrument", "")
+        current_units = int(t.get("currentUnits", 0))
+        if current_units == 0:
+            continue
+        side = "long" if current_units > 0 else "short"
+        entry = float(t.get("price", 0))
+        sl_order = t.get("stopLossOrder") or {}
+        tp_order = t.get("takeProfitOrder") or {}
+        record = TradeRecord(
+            pair=instr,
+            side=side,
+            units=abs(current_units),
+            entry=entry,
+            stop=float(sl_order.get("price", 0)),
+            target=float(tp_order.get("price", 0)),
+            opened_at=t.get("openTime", datetime.now(timezone.utc).isoformat()),
+            trade_id=trade_id,
+        )
+        with state._lock:
+            state.trades.append(record)
+        recovered += 1
+
+    if recovered:
+        log.info(f"AutoTrader: recovered {recovered} open trade(s) from OANDA after restart")
+
+
 async def sync_closed_trades() -> None:
     """Detect which bot trades have been closed by OANDA (SL/TP hit) and update
     daily P&L and the McKay consecutive-loss step-down scale.
@@ -152,20 +234,9 @@ async def sync_closed_trades() -> None:
         if trade.trade_id in live_ids:
             continue  # still open
 
-        # Trade was closed by OANDA (SL or TP triggered)
-        # Estimate P&L from position direction and prices
-        if trade.target > trade.entry > 0:
-            # Assume worst case: stop was hit (conservative)
-            # If TP was hit the actual P&L will be positive but we can't tell
-            # without querying the transaction history; use a simple heuristic:
-            # if current market moved toward target it was likely a win
-            pass
-
         with state._lock:
             trade.status = "closed"
             trade.closed_at = datetime.now(timezone.utc).isoformat()
-            # Update McKay step-down (simplified: we can't know P&L without
-            # transaction query, so we check account NAV change instead)
 
     # McKay step-down: recalculate risk_scale from consecutive_losses
     cl = state.consecutive_losses
