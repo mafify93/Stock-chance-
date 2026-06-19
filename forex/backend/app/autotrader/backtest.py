@@ -33,6 +33,7 @@ import pandas as pd
 from .. import pips as pip_module
 from ..intraday import compute_day_signal
 from ..sessions import get_market_session
+from ..signals import analyze as swing_analyze
 from .config import AutoTraderConfig
 from .risk import calculate_units
 
@@ -85,11 +86,14 @@ def simulate_pair(
     cfg: AutoTraderConfig,
     spread_pips: float,
     starting_nav: float,
+    h1_df: pd.DataFrame | None = None,
 ) -> tuple[list[BacktestTrade], float]:
     """Walk one pair's M5 history bar-by-bar and return (trades, ending_nav).
 
     `df` must be a chronologically-sorted M5 OHLCV frame indexed by UTC time,
     exactly as `oanda.get_candles` returns it.
+    `h1_df` is the same pair's H1 candle history. When provided, the H1 trend
+    direction is passed to `compute_day_signal` exactly as the live engine does.
     """
     trades: list[BacktestTrade] = []
     nav = starting_nav
@@ -98,6 +102,18 @@ def simulate_pair(
 
     trades_today = 0
     current_day = None
+
+    # Pre-compute H1 signal scores once per H1 bar — avoids O(N²) recomputation.
+    # Each entry is (h1_bar_timestamp, score).  Score is the SignalResult.score
+    # from `signals.analyze()`, which ranges from -1.0 (bearish) to +1.0 (bullish).
+    h1_score_timeline: list[tuple[pd.Timestamp, float]] = []
+    if h1_df is not None and len(h1_df) >= 50:
+        for hi in range(49, len(h1_df)):
+            try:
+                h1_sig = swing_analyze(pair, h1_df.iloc[: hi + 1])
+                h1_score_timeline.append((h1_df.index[hi], h1_sig.score))
+            except Exception:
+                pass
 
     i = 25  # warm-up so EMA20 / opening-range have data
     n = len(df)
@@ -121,10 +137,18 @@ def simulate_pair(
                 i += 1
                 continue
 
+        # ── H1 score: most recent H1 bar not later than this M5 bar ─────────
+        h1_score: float | None = None
+        if h1_score_timeline:
+            for h1_ts, h1_s in reversed(h1_score_timeline):
+                if h1_ts <= bar_time:
+                    h1_score = h1_s
+                    break
+
         # ── Signal on closed bars [.. i] ──────────────────────────────────────
         window = df.iloc[: i + 1]
         try:
-            sig = compute_day_signal(pair, window)
+            sig = compute_day_signal(pair, window, h1_score=h1_score)
         except Exception:
             i += 1
             continue
@@ -279,11 +303,14 @@ def run_backtest(
     cfg: AutoTraderConfig,
     spread_pips_by_pair: dict[str, float],
     starting_nav: float,
+    h1_candles_by_pair: dict[str, pd.DataFrame] | None = None,
 ) -> dict:
     """Run the full backtest across every pair and return a JSON-able summary.
 
     `candles_by_pair` maps a pair to its M5 OHLCV DataFrame.
     `spread_pips_by_pair` maps a pair to the spread (in pips) to charge per trade.
+    `h1_candles_by_pair` maps a pair to its H1 OHLCV DataFrame.  When provided,
+    the H1 trend filter is applied exactly as the live engine does.
     """
     per_pair: list[BacktestStats] = []
     all_trades: list[BacktestTrade] = []
@@ -291,8 +318,9 @@ def run_backtest(
 
     for pair, df in candles_by_pair.items():
         spread = spread_pips_by_pair.get(pair, 1.0)
+        h1_df = (h1_candles_by_pair or {}).get(pair)
         pair_start = nav
-        trades, nav = simulate_pair(pair, df, cfg, spread, pair_start)
+        trades, nav = simulate_pair(pair, df, cfg, spread, pair_start, h1_df=h1_df)
         per_pair.append(summarize(pair, trades, pair_start, nav))
         all_trades.extend(trades)
 

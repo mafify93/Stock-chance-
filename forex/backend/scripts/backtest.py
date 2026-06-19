@@ -89,20 +89,28 @@ def main() -> int:
     bars = max(100, min(args.bars, 5000))
 
     candles: dict = {}
+    h1_candles: dict = {}
     for pair in pairs:
         try:
             df = oanda.get_candles(pair, token, "M5", bars, base_url)
             candles[pair] = df
             print(f"Loaded {len(df)} M5 bars for {pair}")
         except Exception as exc:
-            print(f"  skip {pair}: {exc}", file=sys.stderr)
+            print(f"  skip {pair} M5: {exc}", file=sys.stderr)
+        try:
+            df_h1 = oanda.get_candles(pair, token, "H1", 500, base_url)
+            h1_candles[pair] = df_h1
+            print(f"Loaded {len(df_h1)} H1 bars for {pair}")
+        except Exception as exc:
+            print(f"  skip {pair} H1: {exc}", file=sys.stderr)
 
     if not candles:
         print("ERROR: no candle data loaded.", file=sys.stderr)
         return 1
 
     spreads = {p: args.spread for p in candles}
-    result = run_backtest(candles, cfg, spreads, args.nav)
+    result = run_backtest(candles, cfg, spreads, args.nav,
+                          h1_candles_by_pair=h1_candles or None)
 
     print("\n" + "=" * 64)
     print(f"BACKTEST  |  env={args.env}  spread={args.spread}pip  "
