@@ -23,7 +23,7 @@ class AutoTraderConfig:
     daily_loss_limit_pct: float = 0.03  # halt if daily P&L < −3 % of start balance
 
     # --- Entry filters ---
-    min_confidence: float = 0.45    # minimum intraday signal confidence to enter
+    min_confidence: float = 0.60    # minimum intraday signal confidence to enter
     max_spread_pips: float = 3.0    # skip pair if live spread exceeds this
     session_filter: bool = True     # only trade during London or NY sessions
 

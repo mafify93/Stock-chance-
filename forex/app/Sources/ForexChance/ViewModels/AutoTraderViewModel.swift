@@ -14,7 +14,7 @@ final class AutoTraderViewModel: ObservableObject {
     @Published var maxPositions: Int = 2
     @Published var maxTradesPerDay: Int = 50
     @Published var dailyLossLimitPct: Double = 3.0  // shown as percent
-    @Published var minConfidence: Double = 45.0      // shown as percent
+    @Published var minConfidence: Double = 60.0      // shown as percent
     @Published var maxSpreadPips: Double = 3.0
     @Published var sessionFilter: Bool = true
 
