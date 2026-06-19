@@ -165,7 +165,6 @@ async def start_bot(req: StartRequest):
     return {
         "status": "started",
         "environment": req.environment,
-        "config": cfg.__dict__,
     }
 
 
@@ -220,4 +219,4 @@ async def emergency_close():
         except Exception as exc:
             errors.append(f"{trade.pair}: {exc}")
 
-    return {"closed": closed, "errors": errors, "halt_reason": state.halt_reason}
+    return {"closed": closed, "errors": errors}
