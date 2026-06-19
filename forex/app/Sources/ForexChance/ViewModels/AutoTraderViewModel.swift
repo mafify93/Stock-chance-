@@ -69,7 +69,8 @@ final class AutoTraderViewModel: ObservableObject {
     // MARK: - Bot control
 
     func startBot(environment: OandaEnvironment, liveTradingAcknowledged: Bool) async {
-        guard let creds = brokerStore.credentials(for: environment) else {
+        let creds = brokerStore.credentials(for: environment)
+        guard creds.isConfigured else {
             errorMessage = environment == .live
                 ? "Enter your OANDA Live token and account ID in Settings > Broker first."
                 : "Enter your OANDA Practice token and account ID in Settings > Broker first."

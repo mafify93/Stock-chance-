@@ -15,7 +15,7 @@ struct ContentView: View {
             ScreenerView()
                 .tabItem { Label("Screener", systemImage: "chart.bar.fill") }
 
-            AutoTraderView(apiConfig: apiConfig, brokerStore: brokerStore)
+            AutoTraderView(baseURL: apiConfig.baseURL, brokerStore: brokerStore)
                 .tabItem { Label("Auto", systemImage: "bolt.fill") }
 
             PositionsView()

@@ -7,9 +7,9 @@ struct AutoTraderView: View {
     @State private var showLiveWarning = false
     @State private var selectedEnv: OandaEnvironment = .practice
 
-    init(apiConfig: APIConfig, brokerStore: BrokerStore) {
+    init(baseURL: URL, brokerStore: BrokerStore) {
         _vm = StateObject(wrappedValue: AutoTraderViewModel(
-            client: APIClient(baseURL: apiConfig.backendURL),
+            client: APIClient(baseURL: baseURL),
             brokerStore: brokerStore
         ))
     }
@@ -111,16 +111,16 @@ struct AutoTraderView: View {
                     .foregroundColor(.white)
                 Text(vm.status?.environment == "live" ? "LIVE Account" : "Practice Account")
                     .font(.caption)
-                    .foregroundColor(Theme.secondaryText)
+                    .foregroundColor(Theme.textSecondary)
             }
         }
     }
 
     private var statusColor: Color {
-        guard let s = vm.status else { return Theme.secondaryText }
+        guard let s = vm.status else { return Theme.textSecondary }
         if s.halted { return Theme.loss }
         if s.running { return Theme.profit }
-        return Theme.secondaryText
+        return Theme.textSecondary
     }
 
     private var controlButtons: some View {
@@ -143,14 +143,14 @@ struct AutoTraderView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Today")
                 .font(.caption)
-                .foregroundColor(Theme.secondaryText)
+                .foregroundColor(Theme.textSecondary)
                 .textCase(.uppercase)
 
             HStack(spacing: 0) {
                 StatTile(
                     label: "Daily P&L",
                     value: Format.signedMoney(status.dailyPl),
-                    tint: status.dailyPl >= 0 ? Theme.profit : Theme.loss
+                    valueColor: status.dailyPl >= 0 ? Theme.profit : Theme.loss
                 )
                 StatTile(
                     label: "Trades",
@@ -163,7 +163,7 @@ struct AutoTraderView: View {
                 StatTile(
                     label: "Risk Scale",
                     value: "\(Int(status.riskScale * 100))%",
-                    tint: status.riskScale < 1 ? Theme.loss : Theme.secondaryText
+                    valueColor: status.riskScale < 1 ? Theme.loss : Theme.textSecondary
                 )
             }
 
@@ -186,13 +186,13 @@ struct AutoTraderView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Recent Trades")
                 .font(.caption)
-                .foregroundColor(Theme.secondaryText)
+                .foregroundColor(Theme.textSecondary)
                 .textCase(.uppercase)
 
             ForEach(trades.prefix(10)) { trade in
                 AutoTradeRow(trade: trade)
                 if trade.id != (trades.prefix(10).last?.id ?? "") {
-                    Divider().background(Theme.cardStroke)
+                    Divider().background(Theme.cardBorder)
                 }
             }
         }
@@ -205,7 +205,7 @@ struct AutoTraderView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Configuration")
                 .font(.caption)
-                .foregroundColor(Theme.secondaryText)
+                .foregroundColor(Theme.textSecondary)
                 .textCase(.uppercase)
 
             configSlider(label: "Risk per trade", value: $vm.riskPct, range: 0.5...3, step: 0.25, format: "%.2f%%")
@@ -361,7 +361,7 @@ private struct AutoTradeRow: View {
                     .foregroundColor(.white)
                 Text(trade.side.capitalized + " · \(trade.units) units")
                     .font(.caption)
-                    .foregroundColor(Theme.secondaryText)
+                    .foregroundColor(Theme.textSecondary)
             }
 
             Spacer()
@@ -370,7 +370,7 @@ private struct AutoTradeRow: View {
                 HStack(spacing: 4) {
                     Text(trade.isOpen ? "OPEN" : "CLOSED")
                         .font(.caption.bold())
-                        .foregroundColor(trade.isOpen ? Theme.profit : Theme.secondaryText)
+                        .foregroundColor(trade.isOpen ? Theme.profit : Theme.textSecondary)
                     if let pl = trade.realizedPl {
                         Text(Format.signedMoney(pl))
                             .font(.caption.bold())
@@ -379,7 +379,7 @@ private struct AutoTradeRow: View {
                 }
                 Text("\(trade.stopPips, specifier: "%.0f")p SL · \(trade.targetPips, specifier: "%.0f")p TP")
                     .font(.caption2)
-                    .foregroundColor(Theme.secondaryText)
+                    .foregroundColor(Theme.textSecondary)
             }
         }
         .padding(.vertical, 2)
@@ -406,11 +406,11 @@ private struct SecondaryButtonStyle: ButtonStyle {
         configuration.label
             .frame(maxWidth: .infinity)
             .padding(.vertical, 12)
-            .background(Theme.cardBackground)
-            .foregroundColor(Theme.secondaryText)
+            .background(Theme.card)
+            .foregroundColor(Theme.textSecondary)
             .fontWeight(.semibold)
             .cornerRadius(10)
-            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.cardStroke, lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.cardBorder, lineWidth: 1))
             .opacity(configuration.isPressed ? 0.8 : 1)
     }
 }
