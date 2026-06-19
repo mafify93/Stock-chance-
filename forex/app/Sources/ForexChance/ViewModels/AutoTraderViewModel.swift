@@ -10,7 +10,7 @@ final class AutoTraderViewModel: ObservableObject {
 
     // Config overrides exposed to the UI
     @Published var riskPct: Double = 1.0         // shown as percent
-    @Published var rrRatio: Double = 1.75
+    @Published var rrRatio: Double = 2.0
     @Published var maxPositions: Int = 2
     @Published var maxTradesPerDay: Int = 50
     @Published var dailyLossLimitPct: Double = 3.0  // shown as percent

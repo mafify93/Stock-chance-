@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 class AutoTraderConfig:
     # --- Risk / sizing ---
     risk_pct: float = 0.01          # fraction of NAV to risk per trade (1 %)
-    rr_ratio: float = 1.75          # reward-to-risk ratio for take-profit placement
+    rr_ratio: float = 2.0           # reward-to-risk ratio for take-profit placement
     min_stop_pips: float = 8.0      # clamp stop distance from below
     max_stop_pips: float = 30.0     # clamp stop distance from above
 

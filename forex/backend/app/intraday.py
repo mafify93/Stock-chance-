@@ -404,13 +404,13 @@ def compute_day_signal(
     target_pips_val = stop_pips_val = None
 
     if atr_val and atr_val > 0:
-        # 1.5× ATR stop, 1.75× the stop for the target (1.75:1 R:R) — shorter,
-        # faster-to-hit targets that still clear the spread comfortably.
+        # 1.5× ATR stop, 3× ATR target (2:1 R:R) — the minimum ratio that keeps
+        # expectancy positive at a ~43% win rate with a 1.2-pip round-trip spread.
         stop_dist = 1.5 * atr_val
-        tgt_dist = stop_dist * 1.75
+        tgt_dist = stop_dist * 2.0
     else:
         stop_dist = day_range * 0.3
-        tgt_dist = stop_dist * 1.75
+        tgt_dist = stop_dist * 2.0
 
     # ── Swing S&R clearance check ──────────────────────────────────────────
     # If the nearest swing S&R is closer than our target, we don't have room —
