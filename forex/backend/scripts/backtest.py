@@ -62,6 +62,8 @@ def main() -> int:
     p.add_argument("--max-trades-per-day", type=int, default=None)
     p.add_argument("--no-session-filter", action="store_true",
                    help="Trade around the clock instead of London/NY only")
+    p.add_argument("--no-h1-filter", action="store_true",
+                   help="Disable the H1 trend filter (for A/B comparison)")
     args = p.parse_args()
 
     token = os.environ.get("OANDA_TOKEN")
@@ -84,11 +86,14 @@ def main() -> int:
         cfg.max_trades_per_day = args.max_trades_per_day
     if args.no_session_filter:
         cfg.session_filter = False
+    if args.no_h1_filter:
+        cfg.h1_trend_filter = False
 
     pairs = [s.strip() for s in args.pairs.split(",") if s.strip()] or cfg.pairs
     bars = max(100, min(args.bars, 5000))
 
     candles: dict = {}
+    h1_candles: dict = {}
     for pair in pairs:
         try:
             df = oanda.get_candles(pair, token, "M5", bars, base_url)
@@ -96,13 +101,18 @@ def main() -> int:
             print(f"Loaded {len(df)} M5 bars for {pair}")
         except Exception as exc:
             print(f"  skip {pair}: {exc}", file=sys.stderr)
+        if cfg.h1_trend_filter:
+            try:
+                h1_candles[pair] = oanda.get_candles(pair, token, "H1", 500, base_url)
+            except Exception as exc:
+                print(f"  skip {pair} H1: {exc}", file=sys.stderr)
 
     if not candles:
         print("ERROR: no candle data loaded.", file=sys.stderr)
         return 1
 
     spreads = {p: args.spread for p in candles}
-    result = run_backtest(candles, cfg, spreads, args.nav)
+    result = run_backtest(candles, cfg, spreads, args.nav, h1_candles or None)
 
     print("\n" + "=" * 64)
     print(f"BACKTEST  |  env={args.env}  spread={args.spread}pip  "

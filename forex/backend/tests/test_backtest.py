@@ -8,6 +8,23 @@ import pandas as pd
 
 from app.autotrader.backtest import run_backtest, simulate_pair, summarize
 from app.autotrader.config import AutoTraderConfig
+from app.autotrader.engine import h1_blocks_trade
+
+
+def _h1_frame(n: int = 300, slope: float = 0.0006, start: str = "2024-03-01 00:00") -> pd.DataFrame:
+    """Synthetic H1 history with a steady drift (for the trend filter)."""
+    idx = pd.date_range(start, periods=n, freq="1h", tz="UTC")
+    close = 1.1000 + np.cumsum(np.full(n, slope))
+    return pd.DataFrame(
+        {
+            "Open": close - 0.0002,
+            "High": close + 0.0006,
+            "Low": close - 0.0006,
+            "Close": close,
+            "Volume": np.full(n, 1000.0),
+        },
+        index=idx,
+    )
 
 
 def _trending_m5(n: int = 600, slope: float = 0.0008, start: str = "2024-03-04 07:00") -> pd.DataFrame:
@@ -95,3 +112,47 @@ class TestRunBacktest:
         assert result["starting_nav"] == 1000.0
         assert len(result["per_pair"]) == 2
         assert result["overall"]["trades"] >= 0
+
+
+class TestH1TrendFilter:
+    def test_h1_blocks_trade_logic(self):
+        # Counter-trend entries are blocked; aligned/neutral/no-data are allowed.
+        assert h1_blocks_trade("DAY_BUY", -0.5) is True      # buy into a downtrend
+        assert h1_blocks_trade("DAY_SELL", 0.5) is True      # sell into an uptrend
+        assert h1_blocks_trade("DAY_BUY", 0.5) is False      # buy with uptrend
+        assert h1_blocks_trade("DAY_SELL", -0.5) is False    # sell with downtrend
+        assert h1_blocks_trade("DAY_BUY", 0.0) is False      # neutral H1
+        assert h1_blocks_trade("DAY_BUY", None) is False     # no H1 data
+
+    def test_filter_never_adds_trades(self):
+        # On identical data, the H1 filter can only remove trades, never add.
+        df = _trending_m5()
+        h1 = _h1_frame()
+
+        cfg_off = AutoTraderConfig()
+        cfg_off.session_filter = False
+        cfg_off.h1_trend_filter = False
+        trades_off, _ = simulate_pair("EUR_USD", df, cfg_off, 1.0, 1000.0, h1_df=h1)
+
+        cfg_on = AutoTraderConfig()
+        cfg_on.session_filter = False
+        cfg_on.h1_trend_filter = True
+        trades_on, _ = simulate_pair("EUR_USD", df, cfg_on, 1.0, 1000.0, h1_df=h1)
+
+        assert len(trades_on) <= len(trades_off)
+
+    def test_no_h1_data_is_a_noop(self):
+        # Filter on but no H1 frame supplied → behaves exactly like filter off.
+        df = _trending_m5()
+
+        cfg_off = AutoTraderConfig()
+        cfg_off.session_filter = False
+        cfg_off.h1_trend_filter = False
+        trades_off, _ = simulate_pair("EUR_USD", df, cfg_off, 1.0, 1000.0)
+
+        cfg_on = AutoTraderConfig()
+        cfg_on.session_filter = False
+        cfg_on.h1_trend_filter = True
+        trades_on, _ = simulate_pair("EUR_USD", df, cfg_on, 1.0, 1000.0)
+
+        assert len(trades_on) == len(trades_off)

@@ -79,6 +79,7 @@ class BacktestRequest(BaseModel):
     rr_ratio: float | None = None
     min_confidence: float | None = None
     session_filter: bool | None = None
+    h1_trend_filter: bool | None = None  # toggle the H1 trend filter for A/B tests
     max_trades_per_day: int | None = None
     min_stop_pips: float | None = None
     max_stop_pips: float | None = None
@@ -223,7 +224,7 @@ async def backtest(req: BacktestRequest):
     cfg = AutoTraderConfig()
     for field in (
         "risk_pct", "rr_ratio", "min_confidence", "session_filter",
-        "max_trades_per_day", "min_stop_pips", "max_stop_pips",
+        "h1_trend_filter", "max_trades_per_day", "min_stop_pips", "max_stop_pips",
     ):
         val = getattr(req, field, None)
         if val is not None:
@@ -233,8 +234,10 @@ async def backtest(req: BacktestRequest):
     bars = max(100, min(req.bars, 5000))  # OANDA caps a single candle request
 
     candles_by_pair: dict = {}
+    h1_by_pair: dict = {}
     errors: list[str] = []
-    for pair in pairs:
+
+    async def _load_pair(pair: str) -> None:
         try:
             df = await asyncio.to_thread(
                 oanda.get_candles, pair, req.token, "M5", bars, base_url
@@ -242,9 +245,20 @@ async def backtest(req: BacktestRequest):
             if len(df) >= 50:
                 candles_by_pair[pair] = df
             else:
-                errors.append(f"{pair}: only {len(df)} bars returned, skipped")
+                errors.append(f"{pair}: only {len(df)} M5 bars returned, skipped")
         except Exception as exc:
             errors.append(f"{pair}: {exc}")
+        if cfg.h1_trend_filter:
+            try:
+                df_h1 = await asyncio.to_thread(
+                    oanda.get_candles, pair, req.token, "H1", 500, base_url
+                )
+                if len(df_h1) >= 50:
+                    h1_by_pair[pair] = df_h1
+            except Exception:
+                pass  # H1 is optional; the filter degrades gracefully without it
+
+    await asyncio.gather(*[_load_pair(p) for p in pairs])
 
     if not candles_by_pair:
         raise HTTPException(
@@ -253,7 +267,8 @@ async def backtest(req: BacktestRequest):
 
     spread_by_pair = {p: req.spread_pips for p in candles_by_pair}
     result = await asyncio.to_thread(
-        run_backtest, candles_by_pair, cfg, spread_by_pair, req.starting_nav
+        run_backtest, candles_by_pair, cfg, spread_by_pair, req.starting_nav,
+        h1_by_pair or None,
     )
     result["errors"] = errors
     result["bars_per_pair"] = bars

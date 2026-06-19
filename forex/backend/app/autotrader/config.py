@@ -26,6 +26,7 @@ class AutoTraderConfig:
     min_confidence: float = 0.60    # minimum intraday signal confidence to enter
     max_spread_pips: float = 3.0    # skip pair if live spread exceeds this
     session_filter: bool = True     # only trade during London or NY sessions
+    h1_trend_filter: bool = True    # skip M5 entries that fight the H1 trend
 
     # --- Scan schedule ---
     scan_interval_minutes: int = 5  # how often the engine scans the pair list

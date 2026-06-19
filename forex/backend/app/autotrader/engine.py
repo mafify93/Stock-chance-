@@ -29,8 +29,28 @@ from .. import pips as pip_module
 from ..intraday import compute_day_signal
 from ..providers import oanda
 from ..sessions import get_market_session
+from ..signals import analyze as swing_analyze
 from .risk import calculate_units
 from .state import TradeRecord, bot_state
+
+# H1 swing score beyond this magnitude counts as a committed trend direction.
+H1_TREND_THRESHOLD = 0.15
+
+
+def h1_blocks_trade(action: str, h1_score: float | None) -> bool:
+    """Pure H1 trend filter: block an M5 entry only when it clearly fights the
+    H1 trend. Neutral or aligned H1 (or no H1 data) never blocks.
+
+    `action` is "DAY_BUY" / "DAY_SELL"; `h1_score` is signals.analyze().score
+    on H1 candles (-1 bearish .. +1 bullish).
+    """
+    if h1_score is None:
+        return False
+    if action == "DAY_BUY" and h1_score <= -H1_TREND_THRESHOLD:
+        return True
+    if action == "DAY_SELL" and h1_score >= H1_TREND_THRESHOLD:
+        return True
+    return False
 
 log = logging.getLogger(__name__)
 
@@ -373,6 +393,24 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
 
     if day_sig.action == "DAY_HOLD":
         return
+
+    # ── H1 trend filter (single-variable experiment) ─────────────────────────
+    # Pull H1 candles and skip the entry if it fights the higher-timeframe trend.
+    if cfg.h1_trend_filter:
+        try:
+            df_h1 = await asyncio.to_thread(
+                oanda.get_candles, pair, state.token, "H1", 250, state.base_url
+            )
+            if len(df_h1) >= 50:
+                h1_score = swing_analyze(pair, df_h1).score
+                if h1_blocks_trade(day_sig.action, h1_score):
+                    log.debug(
+                        f"AutoTrader {pair}: {day_sig.action} blocked — "
+                        f"fights H1 trend (h1_score {h1_score:+.2f})"
+                    )
+                    return
+        except Exception as exc:
+            log.debug(f"AutoTrader {pair}: H1 filter error (non-fatal): {exc}")
 
     if day_sig.confidence < cfg.min_confidence:
         log.debug(
