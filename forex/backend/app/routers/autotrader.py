@@ -22,10 +22,12 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from ..autotrader.backtest import run_backtest
 from ..autotrader.config import AutoTraderConfig
 from ..autotrader.engine import resync_open_trades
 from ..autotrader.state import bot_state
 from ..providers import oanda
+from ..providers.oanda import LIVE_BASE_URL, PRACTICE_BASE_URL
 
 router = APIRouter(prefix="/api/autotrader", tags=["autotrader"])
 
@@ -62,6 +64,24 @@ class ConfigPatch(BaseModel):
     min_stop_pips: float | None = None
     max_stop_pips: float | None = None
     pairs: list[str] | None = None
+
+
+class BacktestRequest(BaseModel):
+    token: str
+    account_id: str
+    environment: str = "practice"        # candles come from the chosen environment
+    pairs: list[str] | None = None       # defaults to the live config's pair list
+    bars: int = 2000                     # M5 bars of history per pair (~7 trading days)
+    spread_pips: float = 1.0             # round-trip spread cost charged per trade
+    starting_nav: float = 1000.0
+    # Strategy overrides — default to the live AutoTraderConfig values.
+    risk_pct: float | None = None
+    rr_ratio: float | None = None
+    min_confidence: float | None = None
+    session_filter: bool | None = None
+    max_trades_per_day: int | None = None
+    min_stop_pips: float | None = None
+    max_stop_pips: float | None = None
 
 
 class TradeOut(BaseModel):
@@ -188,6 +208,56 @@ async def update_config(patch: ConfigPatch):
             setattr(cfg, field, val)
             updated.append(field)
     return {"updated": updated, "config": cfg.__dict__}
+
+
+@router.post("/backtest")
+async def backtest(req: BacktestRequest):
+    """Replay historical M5 candles through the strategy with spread costs.
+
+    Returns realised expectancy (net pips per trade), win rate, profit factor,
+    and the equity curve's max drawdown — the numbers that tell you whether the
+    strategy has a real edge *after* the spread, before risking live money.
+    """
+    base_url = PRACTICE_BASE_URL if req.environment == "practice" else LIVE_BASE_URL
+
+    cfg = AutoTraderConfig()
+    for field in (
+        "risk_pct", "rr_ratio", "min_confidence", "session_filter",
+        "max_trades_per_day", "min_stop_pips", "max_stop_pips",
+    ):
+        val = getattr(req, field, None)
+        if val is not None:
+            setattr(cfg, field, val)
+
+    pairs = req.pairs or cfg.pairs
+    bars = max(100, min(req.bars, 5000))  # OANDA caps a single candle request
+
+    candles_by_pair: dict = {}
+    errors: list[str] = []
+    for pair in pairs:
+        try:
+            df = await asyncio.to_thread(
+                oanda.get_candles, pair, req.token, "M5", bars, base_url
+            )
+            if len(df) >= 50:
+                candles_by_pair[pair] = df
+            else:
+                errors.append(f"{pair}: only {len(df)} bars returned, skipped")
+        except Exception as exc:
+            errors.append(f"{pair}: {exc}")
+
+    if not candles_by_pair:
+        raise HTTPException(
+            502, detail=f"Could not load candles for backtest. {'; '.join(errors) or ''}"
+        )
+
+    spread_by_pair = {p: req.spread_pips for p in candles_by_pair}
+    result = await asyncio.to_thread(
+        run_backtest, candles_by_pair, cfg, spread_by_pair, req.starting_nav
+    )
+    result["errors"] = errors
+    result["bars_per_pair"] = bars
+    return result
 
 
 @router.post("/emergency-close")
