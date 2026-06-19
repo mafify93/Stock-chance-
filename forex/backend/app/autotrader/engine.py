@@ -393,10 +393,11 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
     if day_sig.action == "DAY_HOLD":
         return
 
-    if day_sig.confidence < cfg.min_confidence:
+    # day_sig.confidence is a 0–100 score; cfg.min_confidence is a 0–1 fraction.
+    if day_sig.confidence < cfg.min_confidence * 100:
         log.debug(
-            f"AutoTrader {pair}: confidence {day_sig.confidence:.0%} < "
-            f"threshold {cfg.min_confidence:.0%}"
+            f"AutoTrader {pair}: confidence {day_sig.confidence:.0f}% < "
+            f"threshold {cfg.min_confidence * 100:.0f}%"
         )
         return
 
@@ -454,7 +455,7 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
         f"AutoTrader: {day_sig.action} {pair} "
         f"{order_units:+,} units @ ~{entry:.5f}  "
         f"SL={stop_price:.5f}  TP={target_price:.5f}  "
-        f"stop={stop_pips:.1f}pips  conf={day_sig.confidence:.0%}"
+        f"stop={stop_pips:.1f}pips  conf={day_sig.confidence:.0f}%"
     )
 
     # ── Place order ───────────────────────────────────────────────────────────

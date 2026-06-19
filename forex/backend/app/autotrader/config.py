@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 class AutoTraderConfig:
     # --- Risk / sizing ---
     risk_pct: float = 0.01          # fraction of NAV to risk per trade (1 %)
-    rr_ratio: float = 2.0           # reward-to-risk ratio for take-profit placement
+    rr_ratio: float = 1.75          # reward-to-risk ratio for take-profit placement
     min_stop_pips: float = 8.0      # clamp stop distance from below
     max_stop_pips: float = 30.0     # clamp stop distance from above
 
@@ -23,7 +23,7 @@ class AutoTraderConfig:
     daily_loss_limit_pct: float = 0.03  # halt if daily P&L < −3 % of start balance
 
     # --- Entry filters ---
-    min_confidence: float = 0.60    # minimum intraday signal confidence to enter
+    min_confidence: float = 0.45    # minimum intraday signal confidence to enter
     max_spread_pips: float = 3.0    # skip pair if live spread exceeds this
     session_filter: bool = True     # only trade during London or NY sessions
 

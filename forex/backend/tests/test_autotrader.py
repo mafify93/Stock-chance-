@@ -101,7 +101,7 @@ class TestAutoTraderConfig:
     def test_defaults(self):
         cfg = AutoTraderConfig()
         assert cfg.risk_pct == pytest.approx(0.01)
-        assert cfg.rr_ratio == pytest.approx(2.0)
+        assert cfg.rr_ratio == pytest.approx(1.75)
         assert cfg.max_positions == 2
         assert cfg.max_trades_per_day == 50
         assert cfg.daily_loss_limit_pct == pytest.approx(0.03)

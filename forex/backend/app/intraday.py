@@ -2,7 +2,8 @@
 
 Improvements over v1:
 ─────────────────────
-1. ADX trend-strength filter  – skip signals when market is ranging (ADX < 20)
+1. ADX trend-strength filter  – skip signals only when dead-flat (ADX < 15);
+                                 dampen conviction in the weak 15–20 band
 2. VWAP bounce detection       – trade the *rejection* off VWAP, not just position
 3. London open breakout        – Asia-range (00:00-07:00 UTC) break during London
                                  open (07:00-10:00 UTC) is the most reliable intraday
@@ -254,9 +255,10 @@ def compute_day_signal(
     alert: str | None = None
 
     # ── 1. ADX trend-strength gate ────────────────────────────────────────────
-    # Skip signal entirely when market is ranging (ADX < 20). Ranging markets
-    # produce the most false crossovers — this is the most impactful single filter.
-    if adx_val is not None and adx_val < 20:
+    # Hard-skip only when the market is genuinely dead (ADX < 15). The 15–20 band
+    # is allowed through but its score is dampened later — this eases pickiness
+    # while still avoiding the flattest, choppiest conditions.
+    if adx_val is not None and adx_val < 15:
         # Not enough trend; return HOLD immediately rather than generating noise
         return DaySignalResult(
             pair=pair, action="DAY_HOLD", score=0.0, confidence=0.0,
@@ -265,7 +267,7 @@ def compute_day_signal(
             session_high=round(session_high, decimals),
             session_low=round(session_low, decimals),
             change_from_open_pips=round(change_from_open_pips, 1),
-            reasons=[f"ADX {adx_val:.1f} < 20 — market is ranging, no trade"],
+            reasons=[f"ADX {adx_val:.1f} < 15 — market is dead-flat, no trade"],
             atr_pips=atr_pips, adx=round(adx_val, 1) if adx_val else None,
         )
 
@@ -371,14 +373,18 @@ def compute_day_signal(
     total_weight = sum(w for _, w, _ in votes)
     score = _clip((weighted_sum / total_weight) if total_weight else 0.0)
 
-    # ADX amplifier: trending markets get a 25% score boost
-    if adx_val is not None and adx_val > 25:
-        score = _clip(score * 1.25)
+    # ADX shaping: boost when strongly trending, dampen in the weak 15–20 band.
+    if adx_val is not None:
+        if adx_val > 25:
+            score = _clip(score * 1.25)
+        elif adx_val < 20:
+            score = _clip(score * 0.9)  # weak trend — slightly less conviction
 
-    # Raise threshold slightly for higher precision — was 0.35, now 0.38
-    if score >= 0.38:
+    # Entry threshold. Lowered 0.38 → 0.30 to ease pickiness; the confidence
+    # gate (user's "Min confidence" slider) is the real selectivity control.
+    if score >= 0.30:
         action = "DAY_BUY"
-    elif score <= -0.38:
+    elif score <= -0.30:
         action = "DAY_SELL"
     else:
         action = "DAY_HOLD"
@@ -398,12 +404,13 @@ def compute_day_signal(
     target_pips_val = stop_pips_val = None
 
     if atr_val and atr_val > 0:
-        # 1.5× ATR stop, 3× ATR target (2:1 R:R)
+        # 1.5× ATR stop, 1.75× the stop for the target (1.75:1 R:R) — shorter,
+        # faster-to-hit targets that still clear the spread comfortably.
         stop_dist = 1.5 * atr_val
-        tgt_dist = 3.0 * atr_val
+        tgt_dist = stop_dist * 1.75
     else:
         stop_dist = day_range * 0.3
-        tgt_dist = day_range * 0.6
+        tgt_dist = stop_dist * 1.75
 
     # ── Swing S&R clearance check ──────────────────────────────────────────
     # If the nearest swing S&R is closer than our target, we don't have room —
@@ -411,7 +418,7 @@ def compute_day_signal(
     swing_h, swing_l = _swing_highs_lows(df["High"], df["Low"], lookback=5)
     if action == "DAY_BUY" and swing_h is not None:
         room = swing_h - price
-        if room < tgt_dist * 0.6:  # less than 60% of target blocked by S/R
+        if room < tgt_dist * 0.4:  # only block when S/R sits inside 40% of target
             action = "DAY_HOLD"
             reasons.append(f"Trade blocked: swing high at {fmt(swing_h)} is too close — target has no room")
             return DaySignalResult(
@@ -427,7 +434,7 @@ def compute_day_signal(
             )
     if action == "DAY_SELL" and swing_l is not None:
         room = price - swing_l
-        if room < tgt_dist * 0.6:
+        if room < tgt_dist * 0.4:  # only block when S/R sits inside 40% of target
             action = "DAY_HOLD"
             reasons.append(f"Trade blocked: swing low at {fmt(swing_l)} is too close — target has no room")
             return DaySignalResult(
