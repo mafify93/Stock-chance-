@@ -8,12 +8,12 @@ services:
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     disk:
       name: bot-state
-      mountPath: /var/data
+      mountPath: /data
       sizeGB: 1
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
       - key: STATE_DIR
-        value: /var/data
+        value: /data
       - key: STATE_KEY
         sync: false
