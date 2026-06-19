@@ -7,7 +7,7 @@ struct OrderSheet: View {
     let pair: PairInfo
     var suggestedAction: TradeAction?
 
-    @EnvironmentObject private var brokerStore: BrokerStore
+    @ObservedObject private var brokerStore = BrokerStore.shared
     @Environment(\.dismiss) private var dismiss
 
     @State private var environment: OandaEnvironment = .practice

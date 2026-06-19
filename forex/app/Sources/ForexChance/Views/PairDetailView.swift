@@ -2,7 +2,7 @@ import SwiftUI
 
 struct PairDetailView: View {
     @StateObject private var viewModel: PairDetailViewModel
-    @EnvironmentObject private var brokerStore: BrokerStore
+    @ObservedObject private var brokerStore = BrokerStore.shared
     @State private var showOrderSheet = false
 
     private let pair: PairInfo

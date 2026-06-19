@@ -37,17 +37,25 @@ struct Candle: Codable, Identifiable, Hashable {
     var id: String { date }
 
     var dateValue: Date {
-        ISO8601DateFormatter.flexible.date(from: date) ?? Date()
+        // Try fractional-seconds format first (OANDA native), then plain
+        // ISO-8601 internet format (pandas isoformat output, no sub-seconds).
+        ISO8601DateFormatter.flexibleFractional.date(from: date)
+            ?? ISO8601DateFormatter.flexible.date(from: date)
+            ?? Date()
     }
 }
 
 extension ISO8601DateFormatter {
-    /// OANDA timestamps are RFC3339 with fractional seconds; configure the
-    /// formatter to accept them.
+    static let flexibleFractional: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
     static let flexible: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
     }()
 }
 

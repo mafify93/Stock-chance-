@@ -2,7 +2,6 @@ import SwiftUI
 
 struct TodayView: View {
     @StateObject private var viewModel = TodayViewModel()
-    @EnvironmentObject private var brokerStore: BrokerStore
 
     var body: some View {
         NavigationStack {
