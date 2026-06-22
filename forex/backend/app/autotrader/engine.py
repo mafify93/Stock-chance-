@@ -257,9 +257,34 @@ async def sync_closed_trades() -> None:
         if trade.trade_id in live_ids:
             continue  # still open
 
+        # Fetch the realized P&L from OANDA so daily accounting stays accurate.
+        realized_pl = 0.0
+        try:
+            trade_data = await asyncio.to_thread(
+                oanda.get_trade, state.token, state.account_id, trade.trade_id, state.base_url
+            )
+            realized_pl = float(trade_data.get("realizedPL") or 0)
+        except Exception as exc:
+            log.debug(f"AutoTrader: could not fetch P&L for trade {trade.trade_id}: {exc}")
+
         with state._lock:
             trade.status = "closed"
             trade.closed_at = datetime.now(timezone.utc).isoformat()
+            trade.realized_pl = realized_pl
+            state.daily_pl += realized_pl
+            if realized_pl < 0:
+                state.consecutive_losses += 1
+            elif realized_pl > 0:
+                state.consecutive_losses = 0
+            # Scratch trades (BE stop hit) don't reset or increment the streak.
+
+        outcome = "win" if realized_pl > 0 else ("loss" if realized_pl < 0 else "scratch")
+        log.info(
+            f"AutoTrader {trade.pair} ({trade.side}): closed — "
+            f"realizedPL {realized_pl:+.2f} [{outcome}], "
+            f"daily P&L {state.daily_pl:+.2f}, "
+            f"consecutive losses: {state.consecutive_losses}"
+        )
 
     # McKay step-down: recalculate risk_scale from consecutive_losses
     cl = state.consecutive_losses
@@ -319,6 +344,26 @@ async def scan_and_trade() -> None:
         log.warning("AutoTrader: NAV is zero or missing")
         return
 
+    # Convert NAV to USD for position sizing — pip_value_per_unit() returns
+    # USD values, so we need the USD-equivalent NAV regardless of account currency.
+    account_currency = account_raw.get("currency", "USD")
+    nav_usd = nav
+    if account_currency != "USD":
+        fx_pair = f"USD_{account_currency}"
+        try:
+            fx_pricing = await asyncio.to_thread(
+                oanda.get_pricing, [fx_pair], state.token, state.account_id, state.base_url
+            )
+            fx_mid = (fx_pricing.get(pip_module.normalize(fx_pair)) or {}).get("mid")
+            if fx_mid and float(fx_mid) > 0:
+                nav_usd = nav / float(fx_mid)
+                log.debug(
+                    f"AutoTrader: {account_currency} account, NAV {nav:.0f} "
+                    f"→ {nav_usd:.0f} USD (USD/{account_currency} {float(fx_mid):.4f})"
+                )
+        except Exception as exc:
+            log.debug(f"AutoTrader: {fx_pair} rate unavailable, sizing in account currency: {exc}")
+
     # ── Daily reset & loss-limit check ───────────────────────────────────────
     today = now.date()
     with state._lock:
@@ -364,7 +409,7 @@ async def scan_and_trade() -> None:
             continue
 
         try:
-            await _evaluate_pair(pair, nav, now)
+            await _evaluate_pair(pair, nav_usd, now)
         except Exception as exc:
             log.error(f"AutoTrader: unexpected error on {pair}: {exc}")
 

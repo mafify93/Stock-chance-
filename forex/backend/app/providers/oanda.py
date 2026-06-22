@@ -245,6 +245,16 @@ def update_trade_stop_loss(
     )
 
 
+def get_trade(token: str, account_id: str, trade_id: str, base_url: str = PRACTICE_BASE_URL) -> dict:
+    """Fetch a specific trade by ID (works for open and closed trades).
+
+    The response includes `realizedPL` once the trade is closed — use this
+    to capture actual P&L rather than estimating from entry/exit prices.
+    """
+    data = _request("GET", f"/accounts/{account_id}/trades/{trade_id}", token, base_url)
+    return data.get("trade", {})
+
+
 def close_trade(token: str, account_id: str, trade_id: str, base_url: str = PRACTICE_BASE_URL) -> dict:
     """Fully close a single open trade by its OANDA trade ID."""
     return _request(
