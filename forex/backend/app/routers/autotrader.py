@@ -67,6 +67,7 @@ class ConfigPatch(BaseModel):
     pairs: list[str] | None = None
     signal_confirmation: bool | None = None
     partial_tp: bool | None = None
+    time_decay_stop: bool | None = None
     max_trade_hours: float | None = None
 
 
@@ -119,6 +120,7 @@ class ConfigOut(BaseModel):
     pairs: list[str]
     signal_confirmation: bool
     partial_tp: bool
+    time_decay_stop: bool
     max_trade_hours: float
 
 

@@ -116,11 +116,16 @@ async def monitor_open_trades() -> None:
 
 
 async def _manage_trade(trade, now: datetime) -> None:
-    """Per-trade management: partial TP at 1R, break-even stop, max-hold-time exit."""
+    """Per-trade management: partial TP at 1R, break-even stop, time-decay stop.
+
+    "R" (the unit of risk used for profit targets) is anchored to the trade's
+    ORIGINAL stop distance via trade.init_risk, so moving the live stop — for
+    break-even or time-decay — never shifts where the 1R profit trigger sits.
+    """
     state = bot_state
     cfg = state.config
     is_long = trade.side == "long"
-    risk = abs(trade.entry - trade.stop)
+    risk = trade.init_risk or abs(trade.entry - trade.stop)
 
     if risk <= 0:
         return
@@ -145,33 +150,48 @@ async def _manage_trade(trade, now: datetime) -> None:
     profit = (mid - trade.entry) if is_long else (trade.entry - mid)
     profit_pips = pip_module.to_pips(trade.pair, profit)
 
-    # ── Max hold time: close losing trades after configured hours ────────────
+    # ── Time-decay stop: tighten (never market-close) a stale, losing trade ──
+    # Your call: don't guillotine a trade that might recover. Give it full room
+    # early, then a progressively shorter leash as it ages while still red. It
+    # keeps its comeback chance but bleeds less if it keeps going. Once a trade
+    # reaches +1R (partial_closed) the break-even logic below owns the stop.
     try:
         opened = datetime.fromisoformat(trade.opened_at.replace("Z", "+00:00"))
         hours_open = (now - opened).total_seconds() / 3600
     except Exception:
         hours_open = 0.0
 
-    if cfg.max_trade_hours > 0 and hours_open >= cfg.max_trade_hours and profit <= 0:
-        log.info(
-            f"AutoTrader {trade.pair}: max hold time ({cfg.max_trade_hours}h) reached "
-            f"with {profit_pips:+.1f} pips — closing"
-        )
-        try:
-            await asyncio.to_thread(
-                oanda.close_position,
-                state.token,
-                state.account_id,
-                trade.pair,
-                trade.side,
-                state.base_url,
-            )
-            with state._lock:
-                trade.status = "closed"
-                trade.closed_at = now.isoformat()
-        except Exception as exc:
-            log.warning(f"AutoTrader {trade.pair}: time-exit close failed: {exc}")
-        return
+    if (
+        cfg.time_decay_stop
+        and cfg.max_trade_hours > 0
+        and profit < 0
+        and not trade.partial_closed
+    ):
+        decay_start = cfg.max_trade_hours * 0.5  # full room until half the window
+        if hours_open >= decay_start:
+            span = max(cfg.max_trade_hours - decay_start, 1e-9)
+            progress = min(1.0, (hours_open - decay_start) / span)
+            min_risk_frac = 0.25  # never tighten below 25% of the original risk
+            allowed_frac = 1.0 - progress * (1.0 - min_risk_frac)
+            allowed_risk = risk * allowed_frac
+            decayed_sl = (trade.entry - allowed_risk) if is_long else (trade.entry + allowed_risk)
+            tighter = (decayed_sl > trade.stop) if is_long else (decayed_sl < trade.stop)
+            if tighter:
+                try:
+                    await asyncio.to_thread(
+                        oanda.update_trade_stop_loss,
+                        state.token, state.account_id, trade.trade_id,
+                        decayed_sl, trade.pair, state.base_url,
+                    )
+                    with state._lock:
+                        trade.stop = decayed_sl
+                    log.info(
+                        f"AutoTrader {trade.pair}: time-decay stop → {decayed_sl:.5f} "
+                        f"({allowed_frac:.0%} of original risk, {hours_open:.1f}h open, "
+                        f"{profit_pips:+.1f} pips)"
+                    )
+                except Exception as exc:
+                    log.warning(f"AutoTrader {trade.pair}: time-decay tighten failed: {exc}")
 
     # Past here we only act when the trade is at or beyond 1R profit.
     if profit < risk:
@@ -265,15 +285,17 @@ async def resync_open_trades() -> None:
         entry = float(t.get("price", 0))
         sl_order = t.get("stopLossOrder") or {}
         tp_order = t.get("takeProfitOrder") or {}
+        sl_price = float(sl_order.get("price", 0))
         record = TradeRecord(
             pair=instr,
             side=side,
             units=abs(current_units),
             entry=entry,
-            stop=float(sl_order.get("price", 0)),
+            stop=sl_price,
             target=float(tp_order.get("price", 0)),
             opened_at=t.get("openTime", datetime.now(timezone.utc).isoformat()),
             trade_id=trade_id,
+            init_risk=abs(entry - sl_price) if sl_price else 0.0,
         )
         with state._lock:
             state.trades.append(record)
@@ -628,6 +650,7 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
         target=target_price,
         opened_at=now.isoformat(),
         trade_id=trade_id,
+        init_risk=abs(entry - stop_price),
     )
 
     with state._lock:

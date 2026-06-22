@@ -29,6 +29,8 @@ class TradeRecord:
     closed_at: str | None = None
     realized_pl: float | None = None
     partial_closed: bool = False    # True once 50% has been taken off at 1R profit
+    init_risk: float = 0.0          # |entry − original stop|; anchors the "R" used for
+                                    # profit targets even after the stop is moved
 
 
 @dataclass

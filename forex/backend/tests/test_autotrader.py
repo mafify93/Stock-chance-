@@ -1,4 +1,6 @@
 """Tests for auto-trader risk, config, and state modules."""
+import asyncio
+
 import pytest
 
 from app.autotrader.risk import calculate_units, expected_value, fractional_kelly
@@ -154,3 +156,80 @@ class TestBotState:
         assert t.pair == "EUR_USD"
         assert t.status == "open"
         assert t.realized_pl is None
+        assert t.partial_closed is False
+        assert t.init_risk == 0.0
+
+
+# ── Trade management: time-decay stop & init_risk anchoring ────────────────────
+
+class TestTimeDecayStop:
+    """The time-decay stop tightens a stale losing trade instead of closing it."""
+
+    def _setup(self, monkeypatch, hours_open, mid, partial_closed=False):
+        """Wire up bot_state with one open long EUR/USD trade and stub OANDA.
+
+        Returns (trade, calls) where calls records every stop-loss update so the
+        test can assert the new stop level. No market-close should ever fire.
+        """
+        from datetime import datetime, timedelta, timezone
+        from app.autotrader import engine
+        from app.autotrader.state import bot_state
+
+        opened = datetime.now(timezone.utc) - timedelta(hours=hours_open)
+        trade = TradeRecord(
+            pair="EUR_USD", side="long", units=1000,
+            entry=1.10000, stop=1.09800, target=1.10400,
+            opened_at=opened.isoformat(), trade_id="T1", status="open",
+            init_risk=0.00200,  # 20 pips
+            partial_closed=partial_closed,
+        )
+        bot_state.running = True
+        bot_state.token = "tok"
+        bot_state.account_id = "acc"
+        bot_state.environment = "practice"
+        bot_state.trades = [trade]
+        bot_state.config = AutoTraderConfig()
+
+        calls = {"stop_updates": [], "closes": []}
+
+        async def fake_to_thread(fn, *args, **kwargs):
+            name = getattr(fn, "__name__", "")
+            if name == "get_pricing":
+                return {"EUR_USD": {"mid": mid}}
+            if name == "update_trade_stop_loss":
+                calls["stop_updates"].append(args[3])  # new SL price
+                return {}
+            if name == "close_position":
+                calls["closes"].append(args)
+                return {}
+            return {}
+
+        monkeypatch.setattr(engine.asyncio, "to_thread", fake_to_thread)
+        return engine, trade, calls
+
+    def test_no_tighten_before_decay_window(self, monkeypatch):
+        # 1h open, max_trade_hours=3 → decay starts at 1.5h, so nothing yet.
+        engine, trade, calls = self._setup(monkeypatch, hours_open=1.0, mid=1.09850)
+        asyncio.run(engine.monitor_open_trades())
+        assert calls["stop_updates"] == []
+        assert calls["closes"] == []  # never market-closes
+
+    def test_tightens_stop_when_stale_and_losing(self, monkeypatch):
+        # 3h open (full decay), still red → stop pulled in to 25% of 20-pip risk
+        # = 5 pips below entry → 1.09950. Never closes the position.
+        engine, trade, calls = self._setup(monkeypatch, hours_open=3.0, mid=1.09850)
+        asyncio.run(engine.monitor_open_trades())
+        assert calls["closes"] == []
+        assert len(calls["stop_updates"]) == 1
+        assert calls["stop_updates"][0] == pytest.approx(1.09950, abs=1e-5)
+
+    def test_no_decay_once_partial_closed(self, monkeypatch):
+        # A trade that already banked partial profit is owned by break-even logic.
+        engine, trade, calls = self._setup(
+            monkeypatch, hours_open=3.0, mid=1.09850, partial_closed=True
+        )
+        asyncio.run(engine.monitor_open_trades())
+        # mid is below entry so profit<0; partial_closed must suppress decay,
+        # and there's no profit to trigger break-even either.
+        assert calls["stop_updates"] == []
+        assert calls["closes"] == []

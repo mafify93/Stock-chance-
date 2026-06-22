@@ -33,7 +33,10 @@ class AutoTraderConfig:
 
     # --- Trade management ---
     partial_tp: bool = True         # close 50% at 1R profit; let rest run with BE stop
-    max_trade_hours: float = 2.0    # close a losing trade that has been open this long
+    time_decay_stop: bool = True    # instead of hard-closing a stale losing trade,
+                                    # progressively tighten its stop as it ages
+    max_trade_hours: float = 3.0    # by this age, a losing trade's stop has fully
+                                    # decayed in to its minimum room (no market close)
 
     # --- Scan schedule ---
     scan_interval_minutes: int = 5  # how often the engine scans the pair list
