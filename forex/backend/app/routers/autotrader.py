@@ -69,6 +69,11 @@ class ConfigPatch(BaseModel):
     partial_tp: bool | None = None
     time_decay_stop: bool | None = None
     max_trade_hours: float | None = None
+    block_rollover: bool | None = None
+    news_blackout_utc: list[str] | None = None
+    trail_runner: bool | None = None
+    trail_atr_period: int | None = None
+    trail_atr_mult: float | None = None
 
 
 class BacktestRequest(BaseModel):
@@ -122,6 +127,11 @@ class ConfigOut(BaseModel):
     partial_tp: bool
     time_decay_stop: bool
     max_trade_hours: float
+    block_rollover: bool
+    news_blackout_utc: list[str]
+    trail_runner: bool
+    trail_atr_period: int
+    trail_atr_mult: float
 
 
 class StatusOut(BaseModel):

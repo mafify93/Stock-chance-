@@ -2,45 +2,102 @@
 
 Unlike the US stock market (one 9:30-16:00 ET session), forex trades 24
 hours a day, five days a week, rolling continuously around the globe through
-four regional sessions:
+four regional sessions. Each session is pinned to its financial centre's
+*local* clock, so its UTC window shifts by an hour with daylight saving — and
+the US and UK switch on different dates, so for ~2 weeks a year the overlap
+moves an extra hour. We therefore define sessions in local time and convert,
+rather than hardcoding UTC hours (which silently trade the wrong hours around
+DST changeovers).
 
-    Sydney   22:00 - 07:00 UTC
-    Tokyo    00:00 - 09:00 UTC
-    London   07:00 - 16:00 UTC
-    New York 12:00 - 21:00 UTC
+    Sydney   07:00 - 16:00  Australia/Sydney
+    Tokyo    09:00 - 18:00  Asia/Tokyo
+    London   08:00 - 16:00  Europe/London
+    New York 08:00 - 17:00  America/New_York
 
 The market "opens" Sunday ~22:00 UTC (Sydney) and "closes" Friday ~21:00 UTC
-(New York close). Day traders care most about the *London/New York overlap*
-(12:00-16:00 UTC), when liquidity and intraday range are highest, so this
-module surfaces which sessions are live and whether the high-liquidity
-overlap is active.
+(New York close). Day traders care most about the *London/New York overlap*,
+when liquidity and intraday range are highest, so this module surfaces which
+sessions are live and whether the high-liquidity overlap is active.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, time as dtime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 
 @dataclass(frozen=True)
 class TradingSession:
     name: str
-    open_hour: int   # UTC hour the session opens
-    close_hour: int  # UTC hour it closes
+    tz: str          # IANA timezone of the financial centre
+    open_hour: int   # local hour the session opens
+    close_hour: int  # local hour it closes
 
 
 SESSIONS = [
-    TradingSession("Sydney", 22, 7),
-    TradingSession("Tokyo", 0, 9),
-    TradingSession("London", 7, 16),
-    TradingSession("New York", 12, 21),
+    TradingSession("Sydney", "Australia/Sydney", 7, 16),
+    TradingSession("Tokyo", "Asia/Tokyo", 9, 18),
+    TradingSession("London", "Europe/London", 8, 16),
+    TradingSession("New York", "America/New_York", 8, 17),
 ]
 
+_NY_TZ = ZoneInfo("America/New_York")
 
-def _session_active(session: TradingSession, hour: int) -> bool:
+
+def _session_active(session: TradingSession, now_utc: datetime) -> bool:
+    """True if `now_utc` falls in the session's local trading window (DST-aware)."""
+    local_hour = now_utc.astimezone(ZoneInfo(session.tz)).hour
     if session.open_hour <= session.close_hour:
-        return session.open_hour <= hour < session.close_hour
-    # Wraps past midnight (e.g. Sydney 22:00 -> 07:00).
-    return hour >= session.open_hour or hour < session.close_hour
+        return session.open_hour <= local_hour < session.close_hour
+    # Wraps past midnight.
+    return local_hour >= session.open_hour or local_hour < session.close_hour
+
+
+def is_rollover(now: datetime | None = None) -> bool:
+    """True during the daily interbank rollover (~17:00 New York time), when
+    liquidity briefly vanishes and spreads spike. No new entries here."""
+    now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    ny = now.astimezone(_NY_TZ)
+    if ny.hour == 16 and ny.minute >= 55:
+        return True
+    if ny.hour == 17 and ny.minute < 10:
+        return True
+    return False
+
+
+def ny_close_imminent(now: datetime | None = None, within_min: int = 5) -> bool:
+    """True in the last `within_min` minutes before the 17:00 ET NY session
+    close — the cue to flatten intraday positions before the overnight gap.
+    DST-aware: this is 20:55 UTC in summer (EDT) and 21:55 UTC in winter (EST)."""
+    now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    ny = now.astimezone(_NY_TZ)
+    close = ny.replace(hour=17, minute=0, second=0, microsecond=0)
+    minutes_until = (close - ny).total_seconds() / 60
+    return 0 <= minutes_until <= within_min
+
+
+def in_blackout(now: datetime, windows: list[str]) -> bool:
+    """True if `now` (UTC) falls in any "HH:MM-HH:MM" UTC blackout window.
+
+    Used for scheduled high-impact news (NFP/CPI/FOMC/ECB) where spreads blow
+    out and price gaps. Windows are user-supplied because there's no economic
+    calendar feed wired in; an empty list disables the check.
+    """
+    if not windows:
+        return False
+    now = now.astimezone(timezone.utc)
+    minutes_now = now.hour * 60 + now.minute
+    for w in windows:
+        try:
+            start_s, end_s = w.split("-")
+            sh, sm = (int(x) for x in start_s.split(":"))
+            eh, em = (int(x) for x in end_s.split(":"))
+            start, end = sh * 60 + sm, eh * 60 + em
+            if start <= minutes_now <= end:
+                return True
+        except (ValueError, AttributeError):
+            continue  # ignore malformed entries rather than crash the scan
+    return False
 
 
 @dataclass
@@ -55,15 +112,14 @@ class MarketSession:
 
 
 def _market_is_open(now: datetime) -> bool:
-    """The 24/5 forex week: open from Sunday 22:00 UTC to Friday 21:00 UTC."""
+    """The 24/5 forex week: open from Sunday 22:00 UTC to Friday 17:00 ET (DST-aware)."""
     weekday = now.weekday()  # Mon=0 .. Sun=6
-    hour = now.hour
     if weekday == 5:  # Saturday - always closed
         return False
     if weekday == 6:  # Sunday - opens at 22:00 UTC (Sydney)
-        return hour >= 22
-    if weekday == 4:  # Friday - closes at 21:00 UTC (New York close)
-        return hour < 21
+        return now.hour >= 22
+    if weekday == 4:  # Friday - closes at 17:00 ET (21:00 UTC EDT, 22:00 UTC EST)
+        return now.astimezone(_NY_TZ).hour < 17
     return True  # Mon-Thu - continuously open
 
 
@@ -87,8 +143,7 @@ def get_market_session(now: datetime | None = None) -> MarketSession:
             note="Forex is closed for the weekend. It reopens Sunday 22:00 UTC (Sydney).",
         )
 
-    hour = now.hour
-    active = [s.name for s in SESSIONS if _session_active(s, hour)]
+    active = [s.name for s in SESSIONS if _session_active(s, now)]
     high_liquidity = ("London" in active) and ("New York" in active)
 
     # Friday New York close (21:00 UTC) is the weekly close.

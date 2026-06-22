@@ -30,13 +30,24 @@ class AutoTraderConfig:
     h1_trend_filter: bool = False   # OFF: backtest proved harmful
     signal_confirmation: bool = True  # require same signal on 2 consecutive scans
                                       # before entering — eliminates one-bar whipsaws
+    block_rollover: bool = True     # no entries during the ~17:00 ET rollover spread spike
+    news_blackout_utc: list[str] = field(default_factory=list)
+                                    # "HH:MM-HH:MM" UTC windows to skip (high-impact news);
+                                    # empty = disabled (no economic-calendar feed wired in)
 
     # --- Trade management ---
-    partial_tp: bool = True         # close 50% at 1R profit; let rest run with BE stop
+    partial_tp: bool = True         # close 50% at 1R profit; let rest run
     time_decay_stop: bool = True    # instead of hard-closing a stale losing trade,
                                     # progressively tighten its stop as it ages
     max_trade_hours: float = 3.0    # by this age, a losing trade's stop has fully
                                     # decayed in to its minimum room (no market close)
+    # Runner management: after the partial, trail the remaining units with an
+    # ATR (Chandelier-style) stop floored at break-even, rather than parking the
+    # stop at entry and waiting for a fixed target. Lets winners run past 2R
+    # while the original 2R take-profit stays on as a hybrid trail+limit exit.
+    trail_runner: bool = True
+    trail_atr_period: int = 14      # ATR lookback (M5 bars) for the trailing stop
+    trail_atr_mult: float = 2.0     # stop sits this many ATRs below the high-since-entry
 
     # --- Scan schedule ---
     scan_interval_minutes: int = 5  # how often the engine scans the pair list

@@ -26,9 +26,10 @@ import logging
 from datetime import datetime, timezone
 
 from .. import pips as pip_module
+from ..indicators import average_true_range
 from ..intraday import compute_day_signal
 from ..providers import oanda
-from ..sessions import get_market_session
+from ..sessions import get_market_session, in_blackout, is_rollover, ny_close_imminent
 from ..signals import analyze as swing_analyze
 from .risk import calculate_units
 from .state import TradeRecord, bot_state
@@ -85,8 +86,9 @@ async def monitor_open_trades() -> None:
 
     now = datetime.now(timezone.utc)
 
-    # Flatten all positions 5 minutes before NY session closes (20:55 UTC).
-    if state.config.session_filter and now.hour == 20 and now.minute >= 55:
+    # Flatten all positions ~5 minutes before the 17:00 ET NY session close.
+    # DST-aware (20:55 UTC in summer, 21:55 UTC in winter).
+    if state.config.session_filter and ny_close_imminent(now):
         open_trades = state.open_trades
         if open_trades:
             log.info("AutoTrader: end-of-session flatten — closing all positions before NY close")
@@ -219,16 +221,46 @@ async def _manage_trade(trade, now: datetime) -> None:
         except Exception as exc:
             log.warning(f"AutoTrader {trade.pair}: partial TP failed: {exc}")
 
-    # ── Break-even stop: slide SL to entry + 1 pip on the remaining units ────
-    if not cfg.breakeven_stop:
+    # ── Runner management: trail the remaining units, floored at break-even ──
+    # The break-even floor guarantees a risk-free runner after the partial; the
+    # ATR (Chandelier-style) trail lets a winner run past 2R instead of parking
+    # at entry. The original 2R take-profit order stays attached on OANDA, so the
+    # runner exits at whichever comes first — trail or limit (the hybrid the
+    # research found optimal). Falls back to a plain break-even move if trailing
+    # is disabled or the ATR can't be computed.
+    if not (cfg.breakeven_stop or cfg.trail_runner):
         return
 
     buffer = pip_module.from_pips(trade.pair, 1.0)
-    new_sl = (trade.entry + buffer) if is_long else (trade.entry - buffer)
+    be_sl = (trade.entry + buffer) if is_long else (trade.entry - buffer)
+    target_sl = be_sl
 
-    if is_long and trade.stop >= new_sl:
+    if cfg.trail_runner:
+        try:
+            df = await asyncio.to_thread(
+                oanda.get_candles, trade.pair, state.token, "M5", 100, state.base_url
+            )
+            atr = float(average_true_range(df, cfg.trail_atr_period).iloc[-1])
+            if not (atr > 0):
+                raise ValueError("ATR unavailable")
+            entry_dt = datetime.fromisoformat(trade.opened_at.replace("Z", "+00:00"))
+            since = df[df.index >= entry_dt]
+            if len(since) == 0:
+                since = df.tail(1)
+            if is_long:
+                chandelier = float(since["High"].max()) - cfg.trail_atr_mult * atr
+                target_sl = max(be_sl, chandelier)
+            else:
+                chandelier = float(since["Low"].min()) + cfg.trail_atr_mult * atr
+                target_sl = min(be_sl, chandelier)
+        except Exception as exc:
+            log.debug(f"AutoTrader {trade.pair}: ATR trail calc failed, using BE: {exc}")
+            target_sl = be_sl
+
+    # Only ever move the stop in the favourable direction.
+    if is_long and target_sl <= trade.stop:
         return
-    if not is_long and trade.stop <= new_sl:
+    if not is_long and target_sl >= trade.stop:
         return
 
     try:
@@ -237,15 +269,15 @@ async def _manage_trade(trade, now: datetime) -> None:
             state.token,
             state.account_id,
             trade.trade_id,
-            new_sl,
+            target_sl,
             trade.pair,
             state.base_url,
         )
         with state._lock:
-            trade.stop = new_sl
-        log.info(f"AutoTrader {trade.pair}: SL moved to break-even @ {new_sl:.5f}")
+            trade.stop = target_sl
+        log.info(f"AutoTrader {trade.pair}: stop trailed to {target_sl:.5f}")
     except Exception as exc:
-        log.warning(f"AutoTrader {trade.pair}: BE stop move failed: {exc}")
+        log.warning(f"AutoTrader {trade.pair}: trail/BE move failed: {exc}")
 
 
 async def resync_open_trades() -> None:
@@ -402,6 +434,14 @@ async def scan_and_trade() -> None:
         if not (set(session.active_sessions) & {"London", "New York"}):
             log.debug("AutoTrader: outside London/NY session, scan skipped")
             return
+
+    # ── Rollover & news blackout gates (no new entries) ──────────────────────
+    if cfg.block_rollover and is_rollover(now):
+        log.debug("AutoTrader: interbank rollover window, no new entries")
+        return
+    if in_blackout(now, cfg.news_blackout_utc):
+        log.debug("AutoTrader: news blackout window, no new entries")
+        return
 
     # ── Account summary ───────────────────────────────────────────────────────
     try:

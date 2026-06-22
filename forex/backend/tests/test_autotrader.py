@@ -233,3 +233,77 @@ class TestTimeDecayStop:
         # and there's no profit to trigger break-even either.
         assert calls["stop_updates"] == []
         assert calls["closes"] == []
+
+
+class TestRunnerTrailing:
+    """At >=1R profit the runner takes a partial and trails on ATR above BE."""
+
+    def _setup(self, monkeypatch, mid, highest_high):
+        from datetime import datetime, timedelta, timezone
+        import pandas as pd
+        from app.autotrader import engine
+        from app.autotrader.state import bot_state
+
+        now = datetime.now(timezone.utc)
+        opened = now - timedelta(hours=1)
+        trade = TradeRecord(
+            pair="EUR_USD", side="long", units=2000,
+            entry=1.10000, stop=1.09800, target=1.10400,
+            opened_at=opened.isoformat(), trade_id="T1", status="open",
+            init_risk=0.00200,  # 20 pips → 1R
+        )
+        bot_state.running = True
+        bot_state.token = "tok"
+        bot_state.account_id = "acc"
+        bot_state.environment = "practice"
+        bot_state.trades = [trade]
+        bot_state.config = AutoTraderConfig()
+
+        # Tight 1-pip-range candles after entry, with a designed swing high so the
+        # ATR is small and the Chandelier trail lands above break-even.
+        idx = [now - timedelta(minutes=5 * (30 - i)) for i in range(30)]
+        closes = [1.10000 + 0.00010 * i for i in range(30)]
+        df = pd.DataFrame(
+            {
+                "Open": closes,
+                "High": [c + 0.00010 for c in closes[:-1]] + [highest_high],
+                "Low": [c - 0.00010 for c in closes],
+                "Close": closes,
+                "Volume": [100] * 30,
+            },
+            index=pd.DatetimeIndex(idx),
+        )
+
+        calls = {"stop_updates": [], "partials": [], "closes": []}
+
+        async def fake_to_thread(fn, *args, **kwargs):
+            name = getattr(fn, "__name__", "")
+            if name == "get_pricing":
+                return {"EUR_USD": {"mid": mid}}
+            if name == "get_candles":
+                return df
+            if name == "close_trade_partial":
+                calls["partials"].append(args[3])  # units closed
+                return {}
+            if name == "update_trade_stop_loss":
+                calls["stop_updates"].append(args[3])  # new SL
+                return {}
+            if name == "close_position":
+                calls["closes"].append(args)
+                return {}
+            return {}
+
+        monkeypatch.setattr(engine.asyncio, "to_thread", fake_to_thread)
+        return engine, trade, calls
+
+    def test_partial_then_trail_above_breakeven(self, monkeypatch):
+        # mid = 1.5R profit; designed swing high 1.10400 with tight ranges.
+        engine, trade, calls = self._setup(monkeypatch, mid=1.10300, highest_high=1.10400)
+        asyncio.run(engine.monitor_open_trades())
+        # Took a partial (half of 2000 units) and never market-closed.
+        assert calls["partials"] == [1000]
+        assert calls["closes"] == []
+        # Trailed the stop above break-even (entry+1pip) but below the swing high.
+        assert len(calls["stop_updates"]) == 1
+        new_sl = calls["stop_updates"][0]
+        assert 1.10010 < new_sl < 1.10400
