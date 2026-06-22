@@ -460,10 +460,11 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
         except Exception as exc:
             log.debug(f"AutoTrader {pair}: H1 filter error (non-fatal): {exc}")
 
-    if day_sig.confidence < cfg.min_confidence:
+    # confidence is a 0–100 value; min_confidence is stored as a 0–1 fraction.
+    if day_sig.confidence < cfg.min_confidence * 100:
         log.debug(
-            f"AutoTrader {pair}: confidence {day_sig.confidence:.0%} < "
-            f"threshold {cfg.min_confidence:.0%}"
+            f"AutoTrader {pair}: confidence {day_sig.confidence:.0f}% < "
+            f"threshold {cfg.min_confidence * 100:.0f}%"
         )
         return
 
