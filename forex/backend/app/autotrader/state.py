@@ -28,6 +28,7 @@ class TradeRecord:
     status: str = "open"
     closed_at: str | None = None
     realized_pl: float | None = None
+    partial_closed: bool = False    # True once 50% has been taken off at 1R profit
 
 
 @dataclass
@@ -53,6 +54,11 @@ class BotState:
 
     # Full trade log for this server process
     trades: list[TradeRecord] = field(default_factory=list)
+
+    # Pending signal confirmation: pair → action from the PREVIOUS scan.
+    # A trade is only entered when two consecutive scans agree on direction.
+    pending_signals: dict = field(default_factory=dict, compare=False)
+
     _lock: Lock = field(default_factory=Lock, compare=False, repr=False)
 
     @property

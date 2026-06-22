@@ -65,6 +65,9 @@ class ConfigPatch(BaseModel):
     min_stop_pips: float | None = None
     max_stop_pips: float | None = None
     pairs: list[str] | None = None
+    signal_confirmation: bool | None = None
+    partial_tp: bool | None = None
+    max_trade_hours: float | None = None
 
 
 class BacktestRequest(BaseModel):
@@ -114,6 +117,9 @@ class ConfigOut(BaseModel):
     session_filter: bool
     scan_interval_minutes: int
     pairs: list[str]
+    signal_confirmation: bool
+    partial_tp: bool
+    max_trade_hours: float
 
 
 class StatusOut(BaseModel):

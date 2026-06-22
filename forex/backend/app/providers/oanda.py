@@ -266,6 +266,27 @@ def close_trade(token: str, account_id: str, trade_id: str, base_url: str = PRAC
     )
 
 
+def close_trade_partial(
+    token: str,
+    account_id: str,
+    trade_id: str,
+    units: int,
+    base_url: str = PRACTICE_BASE_URL,
+) -> dict:
+    """Close `units` of an open trade, leaving the rest running.
+
+    OANDA accepts a positive integer unit count. The remaining units keep their
+    existing stop-loss and take-profit orders attached.
+    """
+    return _request(
+        "PUT",
+        f"/accounts/{account_id}/trades/{trade_id}/close",
+        token,
+        base_url,
+        json={"units": str(units)},
+    )
+
+
 def close_position(
     token: str,
     account_id: str,

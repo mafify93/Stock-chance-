@@ -78,7 +78,7 @@ def _correlation_allows(pair: str, is_buy: bool, open_trades: list) -> bool:
 
 
 async def monitor_open_trades() -> None:
-    """Move stop-loss to break-even on trades at 1R profit; flatten before session end."""
+    """Trade management: partial TP, break-even stop, time exit, session flatten."""
     state = bot_state
     if not state.running or not state.token:
         return
@@ -86,8 +86,6 @@ async def monitor_open_trades() -> None:
     now = datetime.now(timezone.utc)
 
     # Flatten all positions 5 minutes before NY session closes (20:55 UTC).
-    # This prevents holding through the overnight gap when liquidity is thin
-    # and stops can slip significantly.
     if state.config.session_filter and now.hour == 20 and now.minute >= 55:
         open_trades = state.open_trades
         if open_trades:
@@ -110,26 +108,24 @@ async def monitor_open_trades() -> None:
                     log.warning(f"AutoTrader: end-of-session close failed for {trade.pair}: {exc}")
         return
 
-    if not state.config.breakeven_stop:
-        return
-
     for trade in list(state.open_trades):
         try:
-            await _check_breakeven(trade)
+            await _manage_trade(trade, now)
         except Exception as exc:
-            log.debug(f"AutoTrader breakeven check {trade.pair}: {exc}")
+            log.debug(f"AutoTrader trade management {trade.pair}: {exc}")
 
 
-async def _check_breakeven(trade) -> None:
-    """If the trade has moved 1R in our favour, slide SL to break-even."""
+async def _manage_trade(trade, now: datetime) -> None:
+    """Per-trade management: partial TP at 1R, break-even stop, max-hold-time exit."""
     state = bot_state
+    cfg = state.config
     is_long = trade.side == "long"
     risk = abs(trade.entry - trade.stop)
 
     if risk <= 0:
         return
 
-    # Fetch current mid price
+    # Fetch current mid price — shared by all checks below.
     try:
         pricing = await asyncio.to_thread(
             oanda.get_pricing,
@@ -147,14 +143,69 @@ async def _check_breakeven(trade) -> None:
 
     mid = float(mid)
     profit = (mid - trade.entry) if is_long else (trade.entry - mid)
-    if profit < risk:
-        return  # not yet at 1R
+    profit_pips = pip_module.to_pips(trade.pair, profit)
 
-    # Set SL to entry + 1 pip buffer (so we never lose on a winner)
+    # ── Max hold time: close losing trades after configured hours ────────────
+    try:
+        opened = datetime.fromisoformat(trade.opened_at.replace("Z", "+00:00"))
+        hours_open = (now - opened).total_seconds() / 3600
+    except Exception:
+        hours_open = 0.0
+
+    if cfg.max_trade_hours > 0 and hours_open >= cfg.max_trade_hours and profit <= 0:
+        log.info(
+            f"AutoTrader {trade.pair}: max hold time ({cfg.max_trade_hours}h) reached "
+            f"with {profit_pips:+.1f} pips — closing"
+        )
+        try:
+            await asyncio.to_thread(
+                oanda.close_position,
+                state.token,
+                state.account_id,
+                trade.pair,
+                trade.side,
+                state.base_url,
+            )
+            with state._lock:
+                trade.status = "closed"
+                trade.closed_at = now.isoformat()
+        except Exception as exc:
+            log.warning(f"AutoTrader {trade.pair}: time-exit close failed: {exc}")
+        return
+
+    # Past here we only act when the trade is at or beyond 1R profit.
+    if profit < risk:
+        return
+
+    # ── Partial TP: close 50% of units at 1R profit ──────────────────────────
+    if cfg.partial_tp and not trade.partial_closed:
+        half = max(1, trade.units // 2)
+        try:
+            await asyncio.to_thread(
+                oanda.close_trade_partial,
+                state.token,
+                state.account_id,
+                trade.trade_id,
+                half,
+                state.base_url,
+            )
+            with state._lock:
+                trade.units -= half
+                trade.partial_closed = True
+            log.info(
+                f"AutoTrader {trade.pair}: partial TP — closed {half:,} units at "
+                f"+{profit_pips:.1f} pips; {trade.units:,} units still running"
+            )
+        except Exception as exc:
+            log.warning(f"AutoTrader {trade.pair}: partial TP failed: {exc}")
+
+    # ── Break-even stop: slide SL to entry + 1 pip on the remaining units ────
+    if not cfg.breakeven_stop:
+        return
+
     buffer = pip_module.from_pips(trade.pair, 1.0)
     new_sl = (trade.entry + buffer) if is_long else (trade.entry - buffer)
 
-    # Only move in the right direction (never tighten a SL already past BE)
     if is_long and trade.stop >= new_sl:
         return
     if not is_long and trade.stop <= new_sl:
@@ -172,9 +223,9 @@ async def _check_breakeven(trade) -> None:
         )
         with state._lock:
             trade.stop = new_sl
-        log.info(f"AutoTrader {trade.pair}: moved SL to break-even @ {new_sl:.5f}")
+        log.info(f"AutoTrader {trade.pair}: SL moved to break-even @ {new_sl:.5f}")
     except Exception as exc:
-        log.warning(f"AutoTrader {trade.pair}: BE move failed: {exc}")
+        log.warning(f"AutoTrader {trade.pair}: BE stop move failed: {exc}")
 
 
 async def resync_open_trades() -> None:
@@ -440,7 +491,25 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
         return
 
     if day_sig.action == "DAY_HOLD":
+        # Clear any pending signal for this pair on a HOLD — direction has changed.
+        with state._lock:
+            state.pending_signals.pop(pair, None)
         return
+
+    # ── Signal confirmation: require the same direction on two consecutive scans
+    if cfg.signal_confirmation:
+        prev = state.pending_signals.get(pair)
+        with state._lock:
+            state.pending_signals[pair] = day_sig.action
+        if prev != day_sig.action:
+            log.debug(
+                f"AutoTrader {pair}: {day_sig.action} — waiting for confirmation "
+                f"(previous: {prev or 'none'})"
+            )
+            return
+        # Same signal confirmed — clear the pending record and proceed to entry.
+        with state._lock:
+            state.pending_signals.pop(pair, None)
 
     # ── H1 trend filter (single-variable experiment) ─────────────────────────
     # Pull H1 candles and skip the entry if it fights the higher-timeframe trend.

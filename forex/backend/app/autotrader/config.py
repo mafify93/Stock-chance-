@@ -24,11 +24,16 @@ class AutoTraderConfig:
     daily_loss_limit_pct: float = 0.03  # halt if daily P&L < −3 % of start balance
 
     # --- Entry filters ---
-    min_confidence: float = 0.60    # minimum intraday signal confidence to enter
+    min_confidence: float = 0.50    # minimum intraday signal confidence (0–1 scale)
     max_spread_pips: float = 3.0    # skip pair if live spread exceeds this
     session_filter: bool = True     # only trade during London or NY sessions
-    h1_trend_filter: bool = False   # OFF: backtest showed it removes winning
-                                    # counter-trend (dip-buy / VWAP-reversion) trades
+    h1_trend_filter: bool = False   # OFF: backtest proved harmful
+    signal_confirmation: bool = True  # require same signal on 2 consecutive scans
+                                      # before entering — eliminates one-bar whipsaws
+
+    # --- Trade management ---
+    partial_tp: bool = True         # close 50% at 1R profit; let rest run with BE stop
+    max_trade_hours: float = 2.0    # close a losing trade that has been open this long
 
     # --- Scan schedule ---
     scan_interval_minutes: int = 5  # how often the engine scans the pair list
