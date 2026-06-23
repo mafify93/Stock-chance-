@@ -1,0 +1,126 @@
+name: TestFlight Distribution
+
+# Trigger manually from GitHub.com (works on iPhone) or on any push to the
+# feature branch that touches the iOS app.
+on:
+  workflow_dispatch:
+    inputs:
+      release_notes:
+        description: "What's new in this build (shown in TestFlight)"
+        required: false
+        default: "Latest build from Claude Code session"
+  push:
+    branches:
+      - claude/new-session-tyf1cg
+      - main
+    paths:
+      - "forex/app/**"
+      - ".github/workflows/testflight.yml"
+
+jobs:
+  testflight:
+    runs-on: macos-14
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Xcode setup ──────────────────────────────────────────────────────────
+      - name: Select latest Xcode
+        run: |
+          LATEST=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
+          echo "Using $LATEST"
+          sudo xcode-select -s "$LATEST"
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+        working-directory: forex/app
+
+      # ── Code signing ─────────────────────────────────────────────────────────
+      # Uses the App Store Connect API key for automatic signing.
+      # Xcode downloads / renews certificates and provisioning profiles itself —
+      # no .p12 or .mobileprovision files to manage manually.
+      #
+      # Secrets to add at github.com → Settings → Secrets → Actions:
+      #   APP_STORE_CONNECT_KEY_ID      – 10-character Key ID  (e.g. ABC1234567)
+      #   APP_STORE_CONNECT_ISSUER_ID   – UUID from App Store Connect
+      #   APP_STORE_CONNECT_KEY_CONTENT – full text of the .p8 file (including
+      #                                   -----BEGIN PRIVATE KEY----- header)
+      #   APPLE_TEAM_ID                 – your 10-character Team ID
+      - name: Write App Store Connect API key
+        run: |
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo "${{ secrets.APP_STORE_CONNECT_KEY_CONTENT }}" \
+            > ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8
+
+      # ── Build & archive ───────────────────────────────────────────────────────
+      - name: Archive
+        run: |
+          xcodebuild archive \
+            -project ForexChance.xcodeproj \
+            -scheme ForexChance_iOS \
+            -configuration Release \
+            -sdk iphoneos \
+            -archivePath "$RUNNER_TEMP/ForexChance.xcarchive" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath \
+              "$HOME/.appstoreconnect/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8" \
+            -authenticationKeyID "${{ secrets.APP_STORE_CONNECT_KEY_ID }}" \
+            -authenticationKeyIssuerID "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}" \
+            CODE_SIGN_STYLE=Automatic \
+            DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}"
+        working-directory: forex/app
+
+      # ── Export IPA ────────────────────────────────────────────────────────────
+      - name: Write export options
+        run: |
+          cat > "$RUNNER_TEMP/ExportOptions.plist" << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+            "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store</string>
+            <key>teamID</key>
+            <string>${{ secrets.APPLE_TEAM_ID }}</string>
+            <key>uploadBitcode</key>
+            <false/>
+            <key>signingStyle</key>
+            <string>automatic</string>
+          </dict>
+          </plist>
+          EOF
+
+      - name: Export IPA
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/ForexChance.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/Export" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath \
+              "$HOME/.appstoreconnect/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8" \
+            -authenticationKeyID "${{ secrets.APP_STORE_CONNECT_KEY_ID }}" \
+            -authenticationKeyIssuerID "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}"
+
+      # ── Upload to TestFlight ──────────────────────────────────────────────────
+      - name: Upload to TestFlight
+        run: |
+          xcrun altool --upload-app \
+            --type ios \
+            --file "$RUNNER_TEMP/Export/ForexChance.ipa" \
+            --apiKey "${{ secrets.APP_STORE_CONNECT_KEY_ID }}" \
+            --apiIssuer "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}"
+
+      # Keep the IPA as a downloadable artifact (72 h retention).
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ForexChance-TestFlight-${{ github.run_number }}
+          path: ${{ runner.temp }}/Export/ForexChance.ipa
+          retention-days: 3
