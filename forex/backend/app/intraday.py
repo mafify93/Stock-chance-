@@ -134,11 +134,28 @@ def compute_day_signal(pair: str, df: pd.DataFrame) -> DaySignalResult:
     alert: str | None = None
 
     # --- VWAP: who is in control today? ------------------------------------
+    # A VWAP crossing (price flips from one side to the other) is a meaningful
+    # institutional-flow event — it signals that order flow has changed hands.
+    # Merely sitting above/below VWAP for hours is stale: the same London uptrend
+    # that pushed price above VWAP at 08:00 still "votes bullish" at 14:00 even
+    # as NY participants fade that trend. Differentiate the two cases so fresh
+    # crossings get a strong signal and stale position gets a weak confirming vote.
     if vwap_val:
-        if price > vwap_val:
-            votes.append((0.6, 1.0, f"Price ({fmt(price)}) is above today's VWAP ({fmt(vwap_val)}) - buyers in control today"))
+        prev_vwap = float(prev["vwap"]) if not np.isnan(prev["vwap"]) else None
+        prev_close = float(prev["Close"])
+        curr_above = price > vwap_val
+        prev_above = (prev_vwap is not None) and (prev_close > prev_vwap)
+        vwap_crossed = prev_vwap is not None and curr_above != prev_above
+        if curr_above:
+            if vwap_crossed:
+                votes.append((0.85, 1.3, f"Price just crossed above VWAP ({fmt(vwap_val)}) — buying pressure flipping to bullish"))
+            else:
+                votes.append((0.55, 0.9, f"Price ({fmt(price)}) is above VWAP ({fmt(vwap_val)}) - buyers in control today"))
         else:
-            votes.append((-0.6, 1.0, f"Price ({fmt(price)}) is below today's VWAP ({fmt(vwap_val)}) - sellers in control today"))
+            if vwap_crossed:
+                votes.append((-0.85, 1.3, f"Price just crossed below VWAP ({fmt(vwap_val)}) — selling pressure flipping to bearish"))
+            else:
+                votes.append((-0.55, 0.9, f"Price ({fmt(price)}) is below VWAP ({fmt(vwap_val)}) - sellers in control today"))
 
     # --- Opening range breakout/breakdown (first 30 minutes = 6x 5min bars) -
     if len(session_df) > 6:

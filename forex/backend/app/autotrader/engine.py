@@ -756,6 +756,14 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
             log.debug(f"AutoTrader {pair}: Order Block error (falling back): {exc}")
 
     if day_sig is None:
+        # EMA session window: restrict fallback to genuine momentum windows only.
+        if cfg.ema_session_window:
+            ema_min = now.hour * 60 + now.minute
+            in_london_open = 7 * 60 <= ema_min < 9 * 60 + 30
+            in_ny_open = 13 * 60 + 30 <= ema_min < 15 * 60 + 30
+            if not (in_london_open or in_ny_open):
+                return
+
         # Hard time gate (off by default — too broad, removes good trades).
         if cfg.block_ema_ny_open and 13 <= now.hour < 17:
             return

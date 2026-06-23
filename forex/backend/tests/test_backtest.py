@@ -207,5 +207,6 @@ class TestBreakevenStop:
         cfg.session_filter = False
         cfg.h1_trend_filter = False
         cfg.breakeven_stop = True
+        cfg.ema_session_window = False  # test breakeven mechanic across full time range
         trades, _ = simulate_pair("EUR_USD", df, cfg, 1.0, 1000.0)
         assert any(t.outcome == "breakeven" for t in trades)

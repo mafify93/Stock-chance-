@@ -283,6 +283,20 @@ def simulate_pair(
 
         # Fallback: intraday VWAP/RSI/EMA signal
         if ict_result is None:
+            # EMA session window: only trade during London open (07:00–09:30) and
+            # NY open (13:30–15:30) UTC. The session_filter admits a 10-hour window
+            # that includes the choppy London lunch drift (09:30–13:30) where EMA
+            # crossovers have no follow-through. Clear pending state on skip so the
+            # next in-window bar must confirm independently.
+            if cfg.ema_session_window:
+                ema_min = bar_dt.hour * 60 + bar_dt.minute
+                in_london_open = 7 * 60 <= ema_min < 9 * 60 + 30
+                in_ny_open = 13 * 60 + 30 <= ema_min < 15 * 60 + 30
+                if not (in_london_open or in_ny_open):
+                    ema_pending = None
+                    i += 1
+                    continue
+
             # Hard time gate (off by default — too broad, removes good trades).
             if cfg.block_ema_ny_open and 13 <= bar_dt.hour < 17:
                 i += 1

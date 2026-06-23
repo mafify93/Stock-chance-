@@ -79,6 +79,15 @@ class AutoTraderConfig:
     block_ema_ny_open: bool = False         # skip EMA fallback during 13:00–17:00 UTC (NY open)
                                             # tested False — gate removes good trades alongside bad ones
 
+    # --- EMA session time window ---
+    # The session_filter gates on "London or NY open" — a 10-hour window that
+    # includes ~5 hours of London lunch and drift (09:30–13:30 UTC) where EMA
+    # crossovers are pure ranging-market noise. Restricting EMA to the two
+    # genuine momentum windows cuts eligible bars by ~60% while keeping the
+    # trades that actually follow through.
+    ema_session_window: bool = True  # only allow EMA fallback 07:00–09:30 UTC (London open)
+                                     # and 13:30–15:30 UTC (NY open momentum)
+
     # --- NY open momentum alignment ---
     use_ny_open_momentum_filter: bool = True  # during 13:00–16:00 UTC, only take EMA entries
                                               # that align with the actual NY session direction
