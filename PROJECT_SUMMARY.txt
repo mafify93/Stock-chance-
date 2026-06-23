@@ -1,0 +1,227 @@
+================================================================================
+STOCK-CHANCE FOREX AUTO-TRADER — PROJECT SUMMARY
+================================================================================
+Date: 2026-06-23
+Git branch: claude/forex-day-trading-app-pej7ie
+Repo: mafify93/Stock-chance-
+
+────────────────────────────────────────────────────────────────────────────────
+WHAT THIS PROJECT IS
+────────────────────────────────────────────────────────────────────────────────
+An automated forex day-trading system with:
+- iOS SwiftUI app (ForexChance) — live at app/Sources/ForexChance/
+- FastAPI Python backend — live at forex/backend/app/
+- Hosted on Render (starter plan, free tier)
+- Trades via OANDA v20 REST API (practice + live environments)
+- JSON coding uses .convertFromSnakeCase / .convertToSnakeCase in Swift
+
+────────────────────────────────────────────────────────────────────────────────
+TRADING STRATEGIES (what the bot actually runs)
+────────────────────────────────────────────────────────────────────────────────
+1. EMA / Intraday (VWAP + RSI + EMA momentum) — THE CORE STRATEGY
+   - Runs during London + NY sessions (session_filter = True)
+   - Responsible for ~95% of profits in backtest
+   - Calmar ratio: 3.40–4.06 when measured in isolation
+
+2. London Open Breakout (london_open_breakout.py)
+   - Asian-range breakout at London open, 07:00–10:00 UTC
+   - Only on EUR_USD and GBP_USD
+   - Currently ENABLED in config, generated no trades in recent 5000-bar tests
+
+3. Opening Range Breakout / ORB (opening_range.py)
+   - NY open 15-min range breakout, 13:15–17:00 UTC
+   - Currently DISABLED (use_orb = False)
+   - Backtested PF 0.97, Calmar -0.07 — net-negative on its own
+   - BUT acts as a "protective gate" keeping EMA off bad NY-open bars
+   - With ORB ON: overall Calmar 1.82; with ORB OFF: EMA Calmar 1.59
+
+4. Order Block Reversal (order_blocks.py)
+   - M15 reversal at last opposing candle before impulse, 07:00–20:00 UTC
+   - Currently DISABLED (use_order_blocks = False)
+   - Backtested PF 0.94, Calmar -0.12 — genuinely net-negative, no benefit
+
+5. ICT Session Sweep (ict_sweep.py) — LIVE ONLY (requires M1 bars)
+6. ICT Silver Bullet (silver_bullet.py) — LIVE ONLY (requires M1 bars)
+
+Default pairs: EUR_USD, GBP_USD, USD_JPY, EUR_JPY, GBP_JPY
+
+────────────────────────────────────────────────────────────────────────────────
+KEY FILES CHANGED IN THIS SESSION
+────────────────────────────────────────────────────────────────────────────────
+
+Backend:
+  forex/backend/app/autotrader/config.py
+    - Added: use_atr_expansion_filter (default True), atr_expansion_lookback=20
+    - Added: block_ema_ny_open (default False — tested, made things worse)
+    - Changed: use_order_blocks = False (was True) — net-negative strategy
+    - Changed: use_orb = False (was True) — net-negative but acts as EMA gate
+    - breakeven_r = 0.5, hwm_r = 0.5, daily_loss_halt_pct = 0.03
+
+  forex/backend/app/autotrader/backtest.py
+    - Added: signal_type field to BacktestTrade ("london_breakout"|"orb"|"order_block"|"ema_fallback")
+    - Added: calmar_ratio to BacktestStats
+    - _try_ict_signals() now returns (signal, strategy_name) tuple instead of signal alone
+    - ATR expansion filter: skips London Breakout + ORB when ATR14 < 80% of 20-bar mean
+    - Breakeven buffer: changed from hardcoded 1 pip to (spread_pips + 1 pip)
+      → fixes win rate collapsing from 70% to 16% when spread changes from 0.5 to 1.0
+    - run_backtest() now returns per_strategy breakdown alongside per_pair
+
+  forex/backend/app/autotrader/engine.py
+    - FIXED: Stop price bypass — was using day_sig.stop directly, bypassing
+      min_stop_pips/max_stop_pips clamp → caused 50 trades in 2.5 hours
+    - FIXED: HWM close P&L — was hardcoded 0.0, now reads from OANDA response
+      → was cause of all trades showing CLOSED +$0.00
+    - Added: daily loss circuit-breaker (daily_loss_halt_pct)
+    - Added: block_ema_ny_open gate (default False)
+
+  forex/backend/app/routers/autotrader.py
+    - Added: POST /api/autotrader/reset-day endpoint
+    - Added: use_atr_expansion_filter, atr_expansion_lookback, block_ema_ny_open
+      to ConfigPatch and ConfigOut
+
+iOS:
+  forex/app/Sources/ForexChance/Models/AutoTraderModels.swift
+    - BacktestTradeModel: added signalType (String?), strategyLabel computed var
+    - BacktestStatsModel: added calmarRatio (Double?)
+    - BacktestResult: added perStrategy ([BacktestStatsModel]?), calmarRatio computed
+    - BacktestRequest: added useAtrExpansionFilter (Bool?) — was missing, so the
+      toggle never reached the backend (now fixed)
+    - AutoTraderConfig + AutoTraderConfigPatch: added dailyLossHaltPct, useAtrExpansionFilter
+
+  forex/app/Sources/ForexChance/ViewModels/AutoTraderViewModel.swift
+    - Added: dailyLossHaltPct, useAtrExpansionFilter published vars
+    - runBacktest(): now passes useAtrExpansionFilter to the request
+    - resetDay() function added
+    - syncControls() updated for new fields
+
+  forex/app/Sources/ForexChance/Views/BacktestView.swift
+    - Added: "By Strategy" card (shows P&L, WR, PF, Calmar per strategy)
+    - Added: Strategy tag badge (LDN/ORB/OB/EMA) on each trade row
+    - Added: Calmar ratio tile in summary (replaced Net Pips)
+
+  forex/app/Sources/ForexChance/Views/AutoTraderView.swift
+    - Added: "Reset Trading Day" button (appears when daily cap hit or halted)
+    - Added: ATR Expansion Filter toggle in config card
+    - Added: Daily loss limit slider (0–10%) in config card
+
+────────────────────────────────────────────────────────────────────────────────
+BUGS FIXED
+────────────────────────────────────────────────────────────────────────────────
+1. 50 trades in 2.5 hours on live bot
+   Cause: engine used day_sig.stop directly, bypassing min_stop_pips=12 clamp
+   Fix: always compute stop_price from clamped stop_pips
+
+2. All trades showing CLOSED +$0.00
+   Cause: HWM close hardcoded realized_pl = 0.0
+   Fix: extract P&L from OANDA orderFillTransaction response
+
+3. Backtest win rate showing 3520%
+   Cause: iOS BacktestStatsModel.winRatePct was doing winRate * 100 but
+   backend already returns percent
+   Fix: var winRatePct: Double { winRate } (no multiplication)
+
+4. Backtest timeout
+   Cause: _resample_to_m15(window_m5) called on every bar = O(n²)
+   Fix: pre-compute M15 once before the loop, slice by timestamp
+
+5. Breakeven sync mismatch
+   Cause: backtest used hardcoded 1R trigger, live engine used cfg.breakeven_r
+   Fix: backtest now uses stop_delta * cfg.breakeven_r
+
+6. Win rate collapsing from 70% to 16% when spread changes from 0.5 to 1.0
+   Cause: breakeven exits at entry+1pip, at 1.0 spread that nets 0 pips = loss
+   Fix: be_buffer = (spread_pips + 1.0) pips so breakeven always nets +1 pip
+
+7. ATR expansion filter toggle not affecting backtest
+   Cause: BacktestRequest missing useAtrExpansionFilter field
+   Fix: added to model and passed from ViewModel
+
+────────────────────────────────────────────────────────────────────────────────
+BACKTEST OPTIMIZATION FINDINGS (5000 bars, 0.5 pip spread, $800 NAV)
+────────────────────────────────────────────────────────────────────────────────
+Config tested → Return / Max DD / Calmar
+
+Original (everything ON):          +45.9%  /  -25.9%  /  1.77
+OB OFF, ORB ON, ATR ON:            +42.3%  /  -23.3%  /  1.82  ← best Calmar
+OB OFF, ORB OFF, ATR ON, no gate:  +23.3%  /  -14.7%  /  1.59  ← best DD
+OB OFF, ORB OFF, ATR ON, NY gate:  +18.0%  /  -20.4%  /  0.88  ← worst
+
+Key insight: ORB (despite PF 0.97, barely negative) acts as a "gate" that
+prevents EMA from taking bad entries in the NY opening range. Removing ORB
+causes EMA to take 70 extra bad trades, worsening results. The time-gate
+approach (blocking EMA 13:00–17:00 UTC) was too broad — it removed good
+trades alongside bad ones.
+
+Per-strategy Calmar when ORB ON + OB OFF:
+  EMA/Intraday:        Calmar 4.06, +$350, 344 trades, 71% WR, PF 1.43
+  Opening Range Break: Calmar -0.07, -$11, 127 trades, 66% WR, PF 0.97
+  Order Block Reversal: already disabled
+
+Per-pair P&L (when ORB ON, OB OFF):
+  GBP/JPY:  +$159  (strongest)
+  EUR/JPY:  +$154
+  EUR/USD:  +$88
+  GBP/USD:  -$21   (losing — consider removing)
+  USD/JPY:  -$12   (losing — consider removing)
+
+────────────────────────────────────────────────────────────────────────────────
+CURRENT DEFAULT CONFIG (forex/backend/app/autotrader/config.py)
+────────────────────────────────────────────────────────────────────────────────
+risk_pct = 0.01 (1%)
+rr_ratio = 2.0
+min_stop_pips = 12.0
+max_stop_pips = 30.0
+breakeven_stop = True
+breakeven_r = 0.5
+hwm_r = 0.5
+max_positions = 2
+max_trades_per_day = 50
+min_confidence = 0.65
+session_filter = True
+use_london_breakout = True
+use_orb = False          ← disabled (net-negative but acts as EMA gate)
+use_ict_sweep = True     ← live only
+use_silver_bullet = True ← live only
+use_order_blocks = False ← disabled (PF 0.94, genuinely losing)
+use_atr_expansion_filter = True
+block_ema_ny_open = False ← tested True, made things worse
+daily_loss_halt_pct = 0.03 (3%)
+
+────────────────────────────────────────────────────────────────────────────────
+OUTSTANDING DECISIONS / NEXT STEPS
+────────────────────────────────────────────────────────────────────────────────
+1. CHOOSE CONFIG:
+   Option A — Best Calmar (1.82): Re-enable ORB (use_orb = True), keep OB off
+              Accept ORB's -$11 loss as cost of protecting EMA's time window
+              Result: +42.3% return, -23.3% DD
+
+   Option B — Lowest DD (Calmar 1.59): Keep ORB off, run EMA-only
+              Cleaner risk profile, smaller drawdown
+              Result: +23.3% return, -14.7% DD
+
+2. PAIR PRUNING:
+   GBP/USD and USD/JPY are both net-negative in backtests
+   Consider removing them and running only EUR_JPY, GBP_JPY, EUR_USD
+
+3. ORB IMPROVEMENT (if Option A chosen):
+   ORB is at the boundary of profitability (PF 0.97)
+   Could try: tighter confidence threshold for ORB signals specifically,
+   or different RR ratio for ORB entries
+
+4. LIVE BOT TESTING:
+   The bot has been fixed for the 50-trade bug and the +$0 P&L bug
+   Ready for careful live testing on practice account
+
+────────────────────────────────────────────────────────────────────────────────
+API ENDPOINTS
+────────────────────────────────────────────────────────────────────────────────
+GET  /api/autotrader/status          — bot state, trades, config
+POST /api/autotrader/start           — start bot (credentials in body)
+POST /api/autotrader/stop            — stop bot (leaves OANDA orders)
+PATCH /api/autotrader/config         — live-tune config on running bot
+POST /api/autotrader/backtest        — run historical backtest
+POST /api/autotrader/reset-day       — reset daily trade counter + P&L
+POST /api/autotrader/emergency-close — stop bot + close all positions
+GET  /api/autotrader/learner-stats   — AI learner win-rate stats
+
+================================================================================
