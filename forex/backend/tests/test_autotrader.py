@@ -288,7 +288,7 @@ class TestRunnerTrailing:
             if name == "update_trade_stop_loss":
                 calls["stop_updates"].append(args[3])  # new SL
                 return {}
-            if name == "close_position":
+            if name in ("close_position", "close_trade"):
                 calls["closes"].append(args)
                 return {}
             return {}
@@ -303,7 +303,9 @@ class TestRunnerTrailing:
         # Took a partial (half of 2000 units) and never market-closed.
         assert calls["partials"] == [1000]
         assert calls["closes"] == []
-        # Trailed the stop above break-even (entry+1pip) but below the swing high.
-        assert len(calls["stop_updates"]) == 1
-        new_sl = calls["stop_updates"][0]
-        assert 1.10010 < new_sl < 1.10400
+        # Two stop updates: early 0.5R breakeven fires first, then ATR trail.
+        assert len(calls["stop_updates"]) == 2
+        be_sl = calls["stop_updates"][0]
+        trail_sl = calls["stop_updates"][1]
+        assert be_sl == pytest.approx(1.10010, abs=1e-5)  # entry + 1 pip (breakeven)
+        assert 1.10010 < trail_sl < 1.10400                # ATR trail above BE
