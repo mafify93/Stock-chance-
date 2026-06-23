@@ -258,17 +258,16 @@ def simulate_pair(
             continue
 
         # ── Walk forward until stop or target is touched ──────────────────────
-        # When cfg.breakeven_stop is on, once price reaches 1R in our favour the
-        # stop is moved to entry + a 1-pip buffer — exactly as the live engine's
-        # _check_breakeven does. Adverse extreme is always checked first (worst
-        # case), and break-even only arms after that check, so a bar that spikes
-        # to 1R and collapses back to the original stop is still a full loss.
+        # Breakeven fires when price reaches cfg.breakeven_r × stop distance
+        # (same formula as the live engine), then moves the stop to entry + 1 pip.
+        # Adverse extreme is always checked first (worst case).
         be_buffer = pip_module.from_pips(pair, 1.0)
+        be_advance = stop_delta * cfg.breakeven_r   # e.g. 0.5 × 15 pips = 7.5 pips
         if is_long:
-            be_trigger = entry + stop_delta
+            be_trigger = entry + be_advance
             be_stop = entry + be_buffer
         else:
-            be_trigger = entry - stop_delta
+            be_trigger = entry - be_advance
             be_stop = entry - be_buffer
 
         outcome = "eod"
