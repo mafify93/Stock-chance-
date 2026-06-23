@@ -4,7 +4,6 @@ import Charts
 struct BacktestView: View {
     @ObservedObject var vm: AutoTraderViewModel
     @State private var selectedEnv: OandaEnvironment = .practice
-    @State private var showTradeList = false
 
     var body: some View {
         ScreenBackground {
@@ -56,7 +55,7 @@ struct BacktestView: View {
                     .font(.subheadline)
                     .foregroundColor(.white)
                 Spacer()
-                Stepper("\(vm.backtestBars)", value: $vm.backtestBars, step: 500, in: 500...5000)
+                Stepper("\(vm.backtestBars)", value: $vm.backtestBars, in: 500...5000, step: 500)
                     .fixedSize()
                     .tint(Theme.accent)
             }
@@ -97,12 +96,12 @@ struct BacktestView: View {
             HStack(spacing: 0) {
                 StatTile(
                     label: "Return",
-                    value: "\(result.returnPct >= 0 ? "+" : "")\(result.returnPct, specifier: "%.1f")%",
+                    value: String(format: "%@%.1f%%", result.returnPct >= 0 ? "+" : "", result.returnPct),
                     valueColor: result.returnPct >= 0 ? Theme.profit : Theme.loss
                 )
                 StatTile(
                     label: "Win Rate",
-                    value: "\(o.winRatePct, specifier: "%.0f")%",
+                    value: String(format: "%.0f%%", o.winRatePct),
                     valueColor: o.winRatePct >= 50 ? Theme.profit : Theme.loss
                 )
                 StatTile(
@@ -111,7 +110,7 @@ struct BacktestView: View {
                 )
                 StatTile(
                     label: "PF",
-                    value: o.profitFactor < 99 ? "\(o.profitFactor, specifier: "%.2f")" : "∞",
+                    value: o.profitFactor < 99 ? String(format: "%.2f", o.profitFactor) : "∞",
                     valueColor: o.profitFactor >= 1 ? Theme.profit : Theme.loss
                 )
             }
@@ -121,11 +120,11 @@ struct BacktestView: View {
             HStack(spacing: 0) {
                 StatTile(
                     label: "Expectancy",
-                    value: "\(o.expectancyPips >= 0 ? "+" : "")\(o.expectancyPips, specifier: "%.1f")p"
+                    value: String(format: "%@%.1fp", o.expectancyPips >= 0 ? "+" : "", o.expectancyPips)
                 )
                 StatTile(
                     label: "Max DD",
-                    value: "-\(o.maxDrawdownPct, specifier: "%.1f")%",
+                    value: String(format: "-%.1f%%", o.maxDrawdownPct),
                     valueColor: o.maxDrawdownPct > 5 ? Theme.loss : Theme.textSecondary
                 )
                 StatTile(
@@ -135,7 +134,7 @@ struct BacktestView: View {
                 )
                 StatTile(
                     label: "Net Pips",
-                    value: "\(o.netPips >= 0 ? "+" : "")\(o.netPips, specifier: "%.0f")"
+                    value: String(format: "%@%.0f", o.netPips >= 0 ? "+" : "", o.netPips)
                 )
             }
 
@@ -165,6 +164,8 @@ struct BacktestView: View {
 
     private func equityCurveCard(_ result: BacktestResult) -> some View {
         let curve = equityCurve(from: result)
+        let isPositive = result.endingNav >= result.startingNav
+
         return VStack(alignment: .leading, spacing: 12) {
             Text("Equity Curve")
                 .font(.caption)
@@ -176,15 +177,14 @@ struct BacktestView: View {
                     .font(.caption)
                     .foregroundColor(Theme.textSecondary)
             } else {
-                let minY = (curve.map { $0.1 }.min() ?? 0) * 0.98
-                let maxY = (curve.map { $0.1 }.max() ?? 0) * 1.02
-                let isPositive = result.endingNav >= result.startingNav
+                let minY = (curve.map { $0.nav }.min() ?? 0) * 0.98
+                let maxY = (curve.map { $0.nav }.max() ?? 0) * 1.02
 
                 Chart {
-                    ForEach(Array(curve.enumerated()), id: \.offset) { i, point in
+                    ForEach(curve) { point in
                         LineMark(
-                            x: .value("Trade", i),
-                            y: .value("NAV", point.1)
+                            x: .value("Trade", point.index),
+                            y: .value("NAV", point.nav)
                         )
                         .foregroundStyle(isPositive ? Theme.profit : Theme.loss)
                         .interpolationMethod(.monotone)
@@ -198,12 +198,18 @@ struct BacktestView: View {
         .cardStyle()
     }
 
-    private func equityCurve(from result: BacktestResult) -> [(String, Double)] {
+    private struct EquityPoint: Identifiable {
+        let id = UUID()
+        let index: Int
+        let nav: Double
+    }
+
+    private func equityCurve(from result: BacktestResult) -> [EquityPoint] {
         var nav = result.startingNav
-        var points: [(String, Double)] = [("0", nav)]
+        var points = [EquityPoint(index: 0, nav: nav)]
         for (i, trade) in result.trades.enumerated() {
             nav += trade.pnlUsd
-            points.append(("\(i + 1)", max(0, nav)))
+            points.append(EquityPoint(index: i + 1, nav: max(0, nav)))
         }
         return points
     }
@@ -224,7 +230,7 @@ struct BacktestView: View {
                         .foregroundColor(.white)
                     Spacer()
                     VStack(alignment: .trailing, spacing: 2) {
-                        Text("\(stat.winRatePct, specifier: "%.0f")% WR · \(stat.trades) trades")
+                        Text(String(format: "%.0f%% WR · %d trades", stat.winRatePct, stat.trades))
                             .font(.caption)
                             .foregroundColor(Theme.textSecondary)
                         Text(Format.signedMoney(stat.netPnlUsd))
@@ -261,7 +267,7 @@ struct BacktestView: View {
                         .font(.caption2)
                         .foregroundColor(trade.side == "long" ? Theme.profit : Theme.loss)
                     Spacer()
-                    Text("\(trade.netPips >= 0 ? "+" : "")\(trade.netPips, specifier: "%.0f")p")
+                    Text(String(format: "%@%.0fp", trade.netPips >= 0 ? "+" : "", trade.netPips))
                         .font(.caption.monospacedDigit())
                         .foregroundColor(trade.netPips >= 0 ? Theme.profit : Theme.loss)
                     Text(Format.signedMoney(trade.pnlUsd))

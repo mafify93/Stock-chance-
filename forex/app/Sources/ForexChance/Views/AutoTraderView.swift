@@ -226,7 +226,7 @@ struct AutoTraderView: View {
                 HStack(spacing: 0) {
                     StatTile(
                         label: "Win Rate",
-                        value: stats.modelActive ? "\(stats.winRatePct, specifier: "%.0f")%" : "–",
+                        value: stats.modelActive ? String(format: "%.0f%%", stats.winRatePct) : "–",
                         valueColor: stats.modelActive ? (stats.winRatePct >= 50 ? Theme.profit : Theme.loss) : Theme.textSecondary
                     )
                     StatTile(
