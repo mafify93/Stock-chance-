@@ -4,6 +4,7 @@ import Charts
 struct BacktestView: View {
     @ObservedObject var vm: AutoTraderViewModel
     @State private var selectedEnv: OandaEnvironment = .practice
+    @State private var showError = false
 
     var body: some View {
         ScreenBackground {
@@ -31,6 +32,14 @@ struct BacktestView: View {
             }
             .navigationTitle("Backtest")
             .navigationBarTitleDisplayMode(.inline)
+            .alert("Backtest Error", isPresented: $showError) {
+                Button("OK", role: .cancel) { vm.errorMessage = nil }
+            } message: {
+                Text(vm.errorMessage ?? "")
+            }
+            .onChange(of: vm.errorMessage) { msg in
+                showError = msg != nil
+            }
         }
     }
 

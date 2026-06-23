@@ -156,7 +156,7 @@ struct BacktestTradeModel: Codable, Identifiable {
     var confidence: Double
 
     var id: String { "\(pair)-\(entryTime)" }
-    var isWin: Bool { outcome == "win" }
+    var isWin: Bool { outcome == "target" }
 }
 
 struct BacktestResult: Codable {
