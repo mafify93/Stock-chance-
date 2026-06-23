@@ -125,6 +125,7 @@ class ConfigOut(BaseModel):
     max_stop_pips: float
     max_positions: int
     max_trades_per_day: int
+    daily_loss_limit_pct: float = 0.0   # kept for iOS backward-compat; feature removed
     min_confidence: float
     max_spread_pips: float
     session_filter: bool
