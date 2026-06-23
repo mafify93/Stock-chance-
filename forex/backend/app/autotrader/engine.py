@@ -231,20 +231,29 @@ async def _manage_trade(trade, now: datetime) -> None:
         and profit <= 0                  # now back at or below entry
     ):
         try:
-            await asyncio.to_thread(
+            close_resp = await asyncio.to_thread(
                 oanda.close_trade,
                 state.token, state.account_id, trade.trade_id, state.base_url,
             )
+            # Extract actual P&L from the fill response instead of hardcoding 0.
+            fill = close_resp.get("orderFillTransaction") or {}
+            closed_legs = fill.get("tradesClosed") or []
+            actual_pl = sum(float(leg.get("realizedPL") or 0) for leg in closed_legs)
             with state._lock:
                 trade.status = "closed"
                 trade.closed_at = now.isoformat()
-                trade.realized_pl = 0.0
+                trade.realized_pl = actual_pl
+                state.daily_pl += actual_pl
+                if actual_pl < 0:
+                    state.consecutive_losses += 1
+                elif actual_pl > 0:
+                    state.consecutive_losses = 0
             log.info(
                 f"AutoTrader {trade.pair}: HWM close — peaked at "
                 f"+{trade.peak_profit_r:.2f}R ({profit_pips:+.1f}p), "
-                f"fell back to entry; closed to protect profit"
+                f"fell back to entry; P&L {actual_pl:+.2f}"
             )
-            telegram.notify_trade_close(trade.pair, trade.side, 0.0)
+            telegram.notify_trade_close(trade.pair, trade.side, actual_pl)
         except Exception as exc:
             log.warning(f"AutoTrader {trade.pair}: HWM close failed: {exc}")
         return
@@ -863,19 +872,24 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
     # ── Prices ────────────────────────────────────────────────────────────────
     entry = day_sig.entry or day_sig.price
 
-    stop_price = day_sig.stop
-    if stop_price is None:
-        delta = pip_module.from_pips(pair, stop_pips)
-        stop_price = (entry - delta) if is_buy else (entry + delta)
+    # Always derive stop from the CLAMPED stop_pips so min_stop_pips is honoured.
+    # Using day_sig.stop directly would bypass the clamp and let strategies with
+    # tight natural stops (e.g. 5-pip ORB setups) place stops that market noise
+    # hits immediately — causing the bot to burn through the daily trade cap.
+    delta_sl = pip_module.from_pips(pair, stop_pips)
+    stop_price = (entry - delta_sl) if is_buy else (entry + delta_sl)
 
-    # Use the signal's pre-computed target (e.g. ICT liquidity draw) when available;
-    # otherwise compute from the configured R:R ratio.
+    # Use the signal's pre-computed target when it delivers at least cfg.rr_ratio
+    # reward relative to the (clamped) stop; otherwise use the RR-derived target.
+    target_pips = stop_pips * cfg.rr_ratio
+    delta_tp = pip_module.from_pips(pair, target_pips)
+    rr_target = (entry + delta_tp) if is_buy else (entry - delta_tp)
+
     if day_sig.target is not None:
-        target_price = day_sig.target
+        natural_rr = pip_module.to_pips(pair, abs(day_sig.target - entry)) / stop_pips
+        target_price = day_sig.target if natural_rr >= cfg.rr_ratio else rr_target
     else:
-        target_pips = stop_pips * cfg.rr_ratio
-        delta_tp = pip_module.from_pips(pair, target_pips)
-        target_price = (entry + delta_tp) if is_buy else (entry - delta_tp)
+        target_price = rr_target
 
     order_units = units if is_buy else -units
 
