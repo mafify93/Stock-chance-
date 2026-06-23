@@ -73,8 +73,8 @@ final class AutoTraderViewModel: ObservableObject {
         minConfidence = config.minConfidence * 100
         maxSpreadPips = config.maxSpreadPips
         sessionFilter = config.sessionFilter
-        londonBreakout = config.useLondonBreakout
-        useAiLearner = config.useAiLearner
+        londonBreakout = config.useLondonBreakout ?? true
+        useAiLearner = config.useAiLearner ?? true
     }
 
     // MARK: - Learner stats

@@ -15,10 +15,11 @@ struct AutoTraderConfig: Codable, Hashable {
     var sessionFilter: Bool
     var scanIntervalMinutes: Int
     var pairs: [String]
-    var useLondonBreakout: Bool
-    var londonBreakoutPairs: [String]
-    var useAiLearner: Bool
-    var aiMinWinProb: Double
+    // New fields — optional so the app degrades gracefully with an older backend
+    var useLondonBreakout: Bool?
+    var londonBreakoutPairs: [String]?
+    var useAiLearner: Bool?
+    var aiMinWinProb: Double?
 }
 
 // MARK: - Auto-Trader Trade Record
