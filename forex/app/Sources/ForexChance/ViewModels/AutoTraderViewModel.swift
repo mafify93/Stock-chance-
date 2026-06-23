@@ -38,6 +38,8 @@ final class AutoTraderViewModel: ObservableObject {
     @Published var backtestBars: Int = 2000
     @Published var backtestSpreadPips: Double = 1.0
     @Published var backtestStartingNav: Double = 1000.0
+    @Published var backtestPairs: Set<String> = ["EUR_USD", "EUR_JPY", "GBP_JPY"]
+    static let availableBacktestPairs = ["EUR_USD", "EUR_JPY", "GBP_JPY", "GBP_USD", "USD_JPY"]
 
     private var refreshTask: Task<Void, Never>?
     private let client: APIClient
@@ -121,7 +123,7 @@ final class AutoTraderViewModel: ObservableObject {
             token: creds.token,
             accountId: creds.accountId,
             environment: environment.rawValue,
-            pairs: nil,
+            pairs: backtestPairs.sorted(),
             bars: backtestBars,
             spreadPips: backtestSpreadPips,
             startingNav: backtestStartingNav,

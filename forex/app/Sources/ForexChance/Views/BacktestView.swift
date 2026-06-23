@@ -75,6 +75,32 @@ struct BacktestView: View {
             backtestSlider(label: "Spread cost (pips)", value: $vm.backtestSpreadPips, range: 0.5...3.0, step: 0.25, format: "%.1f")
             backtestSlider(label: "Starting NAV ($)", value: $vm.backtestStartingNav, range: 200...10000, step: 200, format: "%.0f")
 
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Pairs")
+                    .font(.subheadline)
+                    .foregroundColor(.white)
+                ForEach(AutoTraderViewModel.availableBacktestPairs, id: \.self) { pair in
+                    let display = pair.replacingOccurrences(of: "_", with: "/")
+                    let selected = vm.backtestPairs.contains(pair)
+                    Button {
+                        if selected {
+                            vm.backtestPairs.remove(pair)
+                        } else {
+                            vm.backtestPairs.insert(pair)
+                        }
+                    } label: {
+                        HStack {
+                            Image(systemName: selected ? "checkmark.square.fill" : "square")
+                                .foregroundColor(selected ? Theme.accent : Theme.textSecondary)
+                            Text(display)
+                                .foregroundColor(.white)
+                                .font(.subheadline)
+                            Spacer()
+                        }
+                    }
+                }
+            }
+
             Button {
                 Task { await vm.runBacktest(environment: selectedEnv) }
             } label: {
