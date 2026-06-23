@@ -146,16 +146,30 @@ class TradeLearner:
             if total == 0:
                 return {
                     "total_trades_observed": 0,
-                    "win_rate": None,
+                    "win_rate": 0.0,
                     "model_active": False,
                     "trades_until_active": self.MIN_TRADES,
+                    "feature_importances": None,
                 }
             wins = sum(e["won"] for e in self._history)
+            importances = None
+            if self._model is not None:
+                try:
+                    names = [f for f in TradeFeatures.__dataclass_fields__
+                             if f not in ("pair", "side", "signal_type")]
+                    importances = {
+                        names[i]: round(float(v), 4)
+                        for i, v in enumerate(self._model.feature_importances_)
+                        if i < len(names)
+                    }
+                except Exception:
+                    pass
             return {
                 "total_trades_observed": total,
                 "win_rate": round(wins / total, 3),
                 "model_active": self._model is not None,
                 "trades_until_active": max(0, self.MIN_TRADES - total),
+                "feature_importances": importances,
             }
 
     # ── Private ──────────────────────────────────────────────────────────────

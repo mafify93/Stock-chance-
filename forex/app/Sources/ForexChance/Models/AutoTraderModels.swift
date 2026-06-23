@@ -87,12 +87,12 @@ struct AutoTraderStatus: Codable, Hashable {
 
 struct LearnerStats: Codable {
     var totalTradesObserved: Int
-    var winRate: Double
+    var winRate: Double?
     var modelActive: Bool
     var tradesUntilActive: Int
     var featureImportances: [String: Double]?
 
-    var winRatePct: Double { winRate * 100 }
+    var winRatePct: Double { (winRate ?? 0) * 100 }
 }
 
 // MARK: - Backtest models
