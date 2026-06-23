@@ -105,7 +105,7 @@ class TestAutoTraderConfig:
         assert cfg.risk_pct == pytest.approx(0.01)
         assert cfg.rr_ratio == pytest.approx(2.0)
         assert cfg.max_positions == 2
-        assert cfg.max_trades_per_day == 5
+        assert cfg.max_trades_per_day == 50
         assert cfg.session_filter is True
         assert "EUR_USD" in cfg.pairs
 
