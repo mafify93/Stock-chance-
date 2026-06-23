@@ -250,4 +250,12 @@ struct APIClient {
         struct Empty: Encodable {}
         return try await send("/api/autotrader/emergency-close", method: "POST", body: Empty())
     }
+
+    func learnerStats() async throws -> LearnerStats {
+        try await get("/api/autotrader/learner-stats")
+    }
+
+    func backtest(_ request: BacktestRequest) async throws -> BacktestResult {
+        try await send("/api/autotrader/backtest", method: "POST", body: request)
+    }
 }

@@ -6,6 +6,7 @@ struct AutoTraderView: View {
     @State private var showEmergencyAlert = false
     @State private var showLiveWarning = false
     @State private var selectedEnv: OandaEnvironment = .practice
+    @State private var showBacktest = false
 
     init(baseURL: URL, brokerStore: BrokerStore) {
         _vm = StateObject(wrappedValue: AutoTraderViewModel(
@@ -25,6 +26,7 @@ struct AutoTraderView: View {
                             if !status.recentTrades.isEmpty {
                                 recentTradesCard(status.recentTrades)
                             }
+                            learnerStatsCard
                             configCard
                         }
                         emergencySection
@@ -33,9 +35,15 @@ struct AutoTraderView: View {
                 }
                 .navigationTitle("Auto-Trader")
                 .toolbar { toolbar }
-                .task { await vm.loadStatus() }
+                .task {
+                    await vm.loadStatus()
+                    await vm.loadLearnerStats()
+                }
                 .onAppear { if vm.status?.running == true { vm.startPolling() } }
                 .onDisappear { vm.stopPolling() }
+                .navigationDestination(isPresented: $showBacktest) {
+                    BacktestView(vm: vm)
+                }
                 .alert("Error", isPresented: Binding(
                     get: { vm.errorMessage != nil },
                     set: { if !$0 { vm.errorMessage = nil } }
@@ -199,6 +207,73 @@ struct AutoTraderView: View {
         .cardStyle()
     }
 
+    // MARK: - AI Learner stats card
+
+    private var learnerStatsCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("AI Learner")
+                    .font(.caption)
+                    .foregroundColor(Theme.textSecondary)
+                    .textCase(.uppercase)
+                Spacer()
+                if vm.isLoadingLearner {
+                    ProgressView().scaleEffect(0.7).tint(Theme.accent)
+                }
+            }
+
+            if let stats = vm.learnerStats {
+                HStack(spacing: 0) {
+                    StatTile(
+                        label: "Win Rate",
+                        value: stats.modelActive ? "\(stats.winRatePct, specifier: "%.0f")%" : "–",
+                        valueColor: stats.modelActive ? (stats.winRatePct >= 50 ? Theme.profit : Theme.loss) : Theme.textSecondary
+                    )
+                    StatTile(
+                        label: "Trades",
+                        value: "\(stats.totalTradesObserved)"
+                    )
+                    StatTile(
+                        label: "Status",
+                        value: stats.modelActive ? "Active" : "Training",
+                        valueColor: stats.modelActive ? Theme.profit : Theme.accent
+                    )
+                }
+
+                if !stats.modelActive {
+                    Text("\(stats.tradesUntilActive) more trade\(stats.tradesUntilActive == 1 ? "" : "s") until the model activates")
+                        .font(.caption)
+                        .foregroundColor(Theme.textSecondary)
+                }
+
+                if let importances = stats.featureImportances, !importances.isEmpty {
+                    let sorted = importances.sorted { $0.value > $1.value }.prefix(3)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Top signals")
+                            .font(.caption2)
+                            .foregroundColor(Theme.textSecondary)
+                        ForEach(sorted, id: \.key) { key, value in
+                            HStack {
+                                Text(key.replacingOccurrences(of: "_", with: " ").capitalized)
+                                    .font(.caption2)
+                                    .foregroundColor(.white)
+                                Spacer()
+                                Text("\(value * 100, specifier: "%.0f")%")
+                                    .font(.caption2.monospacedDigit())
+                                    .foregroundColor(Theme.accent)
+                            }
+                        }
+                    }
+                }
+            } else {
+                Text("No data yet — start the bot to begin collecting trade history.")
+                    .font(.caption)
+                    .foregroundColor(Theme.textSecondary)
+            }
+        }
+        .cardStyle()
+    }
+
     // MARK: - Config card
 
     private var configCard: some View {
@@ -214,8 +289,21 @@ struct AutoTraderView: View {
             configSlider(label: "Min confidence", value: $vm.minConfidence, range: 35...80, step: 5, format: "%.0f%%")
             configSlider(label: "Max spread (pips)", value: $vm.maxSpreadPips, range: 1...8, step: 0.5, format: "%.1f")
             configStepper(label: "Max positions", value: $vm.maxPositions, range: 1...4)
-            configStepper(label: "Max trades/day", value: $vm.maxTradesPerDay, range: 1...50)
+            configStepper(label: "Max trades/day", value: $vm.maxTradesPerDay, range: 1...20)
+
+            Divider().background(Theme.cardBorder)
+
             Toggle("Session filter (London/NY only)", isOn: $vm.sessionFilter)
+                .tint(Theme.accent)
+                .font(.subheadline)
+                .foregroundColor(.white)
+
+            Toggle("London Open Breakout", isOn: $vm.londonBreakout)
+                .tint(Theme.accent)
+                .font(.subheadline)
+                .foregroundColor(.white)
+
+            Toggle("AI Self-Learning", isOn: $vm.useAiLearner)
                 .tint(Theme.accent)
                 .font(.subheadline)
                 .foregroundColor(.white)
@@ -227,8 +315,6 @@ struct AutoTraderView: View {
             }
         }
         .cardStyle()
-        // Push edits to a running bot. Coarse slider steps keep this to a
-        // handful of calls, and it's a no-op while the bot is stopped.
         .onChange(of: vm.riskPct) { _ in applyConfig() }
         .onChange(of: vm.rrRatio) { _ in applyConfig() }
         .onChange(of: vm.dailyLossLimitPct) { _ in applyConfig() }
@@ -237,6 +323,8 @@ struct AutoTraderView: View {
         .onChange(of: vm.maxPositions) { _ in applyConfig() }
         .onChange(of: vm.maxTradesPerDay) { _ in applyConfig() }
         .onChange(of: vm.sessionFilter) { _ in applyConfig() }
+        .onChange(of: vm.londonBreakout) { _ in applyConfig() }
+        .onChange(of: vm.useAiLearner) { _ in applyConfig() }
     }
 
     private func applyConfig() {
@@ -327,13 +415,23 @@ struct AutoTraderView: View {
     // MARK: - Toolbar
 
     private var toolbar: some ToolbarContent {
-        ToolbarItem(placement: .navigationBarTrailing) {
-            Button {
-                Task { await vm.loadStatus() }
-            } label: {
-                Image(systemName: "arrow.clockwise")
+        Group {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    Task { await vm.loadStatus() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .tint(Theme.accent)
             }
-            .tint(Theme.accent)
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    showBacktest = true
+                } label: {
+                    Image(systemName: "chart.xyaxis.line")
+                }
+                .tint(Theme.accent)
+            }
         }
     }
 

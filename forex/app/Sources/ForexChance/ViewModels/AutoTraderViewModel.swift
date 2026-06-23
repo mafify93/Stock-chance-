@@ -9,23 +9,35 @@ final class AutoTraderViewModel: ObservableObject {
     @Published var actionMessage: String?
 
     // Config overrides exposed to the UI
-    @Published var riskPct: Double = 1.0         // shown as percent
+    @Published var riskPct: Double = 1.0           // shown as percent
     @Published var rrRatio: Double = 2.0
     @Published var maxPositions: Int = 2
-    @Published var maxTradesPerDay: Int = 50
-    @Published var dailyLossLimitPct: Double = 3.0  // shown as percent
-    @Published var minConfidence: Double = 60.0      // shown as percent
-    @Published var maxSpreadPips: Double = 3.0
+    @Published var maxTradesPerDay: Int = 5
+    @Published var dailyLossLimitPct: Double = 1.5  // shown as percent
+    @Published var minConfidence: Double = 65.0     // shown as percent
+    @Published var maxSpreadPips: Double = 2.0
     @Published var sessionFilter: Bool = true
+    @Published var londonBreakout: Bool = true
+    @Published var useAiLearner: Bool = true
+
+    // AI Learner stats
+    @Published var learnerStats: LearnerStats?
+    @Published var isLoadingLearner = false
+
+    // Backtest
+    @Published var backtestResult: BacktestResult?
+    @Published var isBacktesting = false
+    @Published var backtestBars: Int = 2000
+    @Published var backtestSpreadPips: Double = 1.0
+    @Published var backtestStartingNav: Double = 1000.0
 
     private var refreshTask: Task<Void, Never>?
     private let client: APIClient
-    private let brokerStore: BrokerStore
+    let brokerStore: BrokerStore
 
     /// We sync the config sliders/toggles from the server only on the first
     /// load. After that they're owned by the user - otherwise the 15s status
-    /// poll would overwrite an edit in progress (e.g. snapping the session
-    /// filter toggle back on the moment you turn it off).
+    /// poll would overwrite an edit in progress.
     private var hasSyncedConfig = false
 
     init(client: APIClient, brokerStore: BrokerStore) {
@@ -61,7 +73,60 @@ final class AutoTraderViewModel: ObservableObject {
         minConfidence = config.minConfidence * 100
         maxSpreadPips = config.maxSpreadPips
         sessionFilter = config.sessionFilter
+        londonBreakout = config.useLondonBreakout
+        useAiLearner = config.useAiLearner
     }
+
+    // MARK: - Learner stats
+
+    func loadLearnerStats() async {
+        isLoadingLearner = true
+        defer { isLoadingLearner = false }
+        do {
+            learnerStats = try await client.learnerStats()
+        } catch {
+            if !isCancellation(error) {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    // MARK: - Backtest
+
+    func runBacktest(environment: OandaEnvironment) async {
+        let creds = brokerStore.credentials(for: environment)
+        guard creds.isConfigured else {
+            errorMessage = "Configure your OANDA credentials in Settings > Broker first."
+            return
+        }
+        isBacktesting = true
+        defer { isBacktesting = false }
+        let request = BacktestRequest(
+            token: creds.token,
+            accountId: creds.accountId,
+            environment: environment.rawValue,
+            pairs: nil,
+            bars: backtestBars,
+            spreadPips: backtestSpreadPips,
+            startingNav: backtestStartingNav,
+            riskPct: riskPct / 100,
+            rrRatio: rrRatio,
+            minConfidence: minConfidence / 100,
+            sessionFilter: sessionFilter,
+            maxTradesPerDay: maxTradesPerDay,
+            minStopPips: nil,
+            maxStopPips: nil
+        )
+        do {
+            backtestResult = try await client.backtest(request)
+        } catch {
+            if !isCancellation(error) {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    // MARK: - Config push
 
     /// Push the current control values to a *running* bot. No-op when the bot
     /// is stopped - those values are sent in full when it's next started.
@@ -75,7 +140,10 @@ final class AutoTraderViewModel: ObservableObject {
             rrRatio: rrRatio,
             maxSpreadPips: maxSpreadPips,
             minConfidence: minConfidence / 100,
-            sessionFilter: sessionFilter
+            sessionFilter: sessionFilter,
+            useLondonBreakout: londonBreakout,
+            useAiLearner: useAiLearner,
+            aiMinWinProb: nil
         )
         do {
             try await client.updateAutoTraderConfig(patch)
@@ -130,7 +198,7 @@ final class AutoTraderViewModel: ObservableObject {
             maxSpreadPips: maxSpreadPips,
             minConfidence: minConfidence / 100,
             sessionFilter: sessionFilter,
-            pairs: nil   // use server default
+            pairs: nil
         )
 
         do {

@@ -31,10 +31,12 @@ from ..intraday import compute_day_signal
 from ..providers import oanda
 from ..sessions import get_market_session, in_blackout, is_rollover, ny_close_imminent
 from ..signals import analyze as swing_analyze
+from .calendar import refresh_blackout_windows
 from .learner import TradeFeatures, trade_learner
 from .london_breakout import london_open_breakout
 from .risk import calculate_units
 from .state import TradeRecord, bot_state
+from . import telegram
 
 # H1 swing score beyond this magnitude counts as a committed trend direction.
 H1_TREND_THRESHOLD = 0.15
@@ -91,6 +93,11 @@ async def monitor_open_trades() -> None:
     # Flatten all positions ~5 minutes before the 17:00 ET NY session close.
     # DST-aware (20:55 UTC in summer, 21:55 UTC in winter).
     if state.config.session_filter and ny_close_imminent(now):
+        # Send daily summary before closing positions so P&L reflects open trades.
+        if state.start_of_day_balance:
+            telegram.notify_daily_summary(
+                state.daily_pl, state.trades_today, state.start_of_day_balance
+            )
         open_trades = state.open_trades
         if open_trades:
             log.info("AutoTrader: end-of-session flatten — closing all positions before NY close")
@@ -400,6 +407,7 @@ async def sync_closed_trades() -> None:
             f"daily P&L {state.daily_pl:+.2f}, "
             f"consecutive losses: {state.consecutive_losses}"
         )
+        telegram.notify_trade_close(trade.pair, trade.side, realized_pl)
 
     # McKay step-down: recalculate risk_scale from consecutive_losses
     cl = state.consecutive_losses
@@ -497,6 +505,8 @@ async def scan_and_trade() -> None:
             state.trades_today = 0
             state.halted = False
             state.halt_reason = ""
+            # Refresh economic calendar blackout windows for the new trading day.
+            refresh_blackout_windows(cfg)
 
     if state.start_of_day_balance and state.start_of_day_balance > 0:
         # Primary check: live NAV vs opening balance — immune to P&L tracking gaps
@@ -514,6 +524,7 @@ async def scan_and_trade() -> None:
                 state.halted = True
                 state.halt_reason = msg
             log.warning(f"AutoTrader HALTED: {msg}")
+            telegram.notify_halt(msg)
             return
 
     # ── Trade-count guards ────────────────────────────────────────────────────
@@ -779,3 +790,7 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
         state.trades_today += 1
 
     log.info(f"AutoTrader {pair}: order placed, trade_id={trade_id}")
+    telegram.notify_trade_entry(
+        pair, record.side, record.units, entry, stop_price, target_price,
+        signal_type, day_sig.confidence,
+    )

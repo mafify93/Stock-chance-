@@ -15,6 +15,10 @@ struct AutoTraderConfig: Codable, Hashable {
     var sessionFilter: Bool
     var scanIntervalMinutes: Int
     var pairs: [String]
+    var useLondonBreakout: Bool
+    var londonBreakoutPairs: [String]
+    var useAiLearner: Bool
+    var aiMinWinProb: Double
 }
 
 // MARK: - Auto-Trader Trade Record
@@ -78,6 +82,95 @@ struct AutoTraderStatus: Codable, Hashable {
     }
 }
 
+// MARK: - AI Learner Stats
+
+struct LearnerStats: Codable {
+    var totalTradesObserved: Int
+    var winRate: Double
+    var modelActive: Bool
+    var tradesUntilActive: Int
+    var featureImportances: [String: Double]?
+
+    var winRatePct: Double { winRate * 100 }
+}
+
+// MARK: - Backtest models
+
+struct BacktestRequest: Codable {
+    var token: String
+    var accountId: String
+    var environment: String
+    var pairs: [String]?
+    var bars: Int
+    var spreadPips: Double
+    var startingNav: Double
+    var riskPct: Double?
+    var rrRatio: Double?
+    var minConfidence: Double?
+    var sessionFilter: Bool?
+    var maxTradesPerDay: Int?
+    var minStopPips: Double?
+    var maxStopPips: Double?
+}
+
+struct BacktestStatsModel: Codable, Identifiable {
+    var pair: String
+    var trades: Int
+    var wins: Int
+    var losses: Int
+    var winRate: Double
+    var grossPips: Double
+    var spreadPaidPips: Double
+    var netPips: Double
+    var avgWinPips: Double
+    var avgLossPips: Double
+    var expectancyPips: Double
+    var profitFactor: Double
+    var netPnlUsd: Double
+    var returnPct: Double
+    var maxDrawdownPct: Double
+    var endingNav: Double
+
+    var id: String { pair }
+    var winRatePct: Double { winRate * 100 }
+}
+
+struct BacktestTradeModel: Codable, Identifiable {
+    var pair: String
+    var side: String
+    var entryTime: String
+    var exitTime: String
+    var entry: Double
+    var exit: Double
+    var stop: Double
+    var target: Double
+    var units: Int
+    var outcome: String
+    var grossPips: Double
+    var netPips: Double
+    var pnlUsd: Double
+    var confidence: Double
+
+    var id: String { "\(pair)-\(entryTime)" }
+    var isWin: Bool { outcome == "win" }
+}
+
+struct BacktestResult: Codable {
+    var startingNav: Double
+    var endingNav: Double
+    var overall: BacktestStatsModel
+    var perPair: [BacktestStatsModel]
+    var tradeCount: Int
+    var trades: [BacktestTradeModel]
+    var errors: [String]
+    var barsPerPair: Int
+
+    var returnPct: Double {
+        guard startingNav > 0 else { return 0 }
+        return (endingNav - startingNav) / startingNav * 100
+    }
+}
+
 // MARK: - Start request helpers (built in ViewModel, sent as JSON)
 
 struct AutoTraderStartRequest: Codable {
@@ -107,4 +200,7 @@ struct AutoTraderConfigPatch: Codable {
     var maxSpreadPips: Double?
     var minConfidence: Double?
     var sessionFilter: Bool?
+    var useLondonBreakout: Bool?
+    var useAiLearner: Bool?
+    var aiMinWinProb: Double?
 }

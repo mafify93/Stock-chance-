@@ -25,6 +25,7 @@ from pydantic import BaseModel
 from ..autotrader.backtest import run_backtest
 from ..autotrader.config import AutoTraderConfig
 from ..autotrader.engine import resync_open_trades
+from ..autotrader.learner import trade_learner
 from ..autotrader.persistence import save_state
 from ..autotrader.state import bot_state
 from ..providers import oanda
@@ -74,6 +75,10 @@ class ConfigPatch(BaseModel):
     trail_runner: bool | None = None
     trail_atr_period: int | None = None
     trail_atr_mult: float | None = None
+    use_london_breakout: bool | None = None
+    london_breakout_pairs: list[str] | None = None
+    use_ai_learner: bool | None = None
+    ai_min_win_prob: float | None = None
 
 
 class BacktestRequest(BaseModel):
@@ -132,6 +137,10 @@ class ConfigOut(BaseModel):
     trail_runner: bool
     trail_atr_period: int
     trail_atr_mult: float
+    use_london_breakout: bool
+    london_breakout_pairs: list[str]
+    use_ai_learner: bool
+    ai_min_win_prob: float
 
 
 class StatusOut(BaseModel):
@@ -336,3 +345,9 @@ async def emergency_close():
 
     save_state()  # persist halted state so a restart stays halted
     return {"closed": closed, "errors": errors}
+
+
+@router.get("/learner-stats")
+async def learner_stats():
+    """Return the AI learner's current state: win rate, model activation, feature importances."""
+    return trade_learner.stats()
