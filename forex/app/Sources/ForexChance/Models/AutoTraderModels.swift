@@ -20,6 +20,7 @@ struct AutoTraderConfig: Codable, Hashable {
     var londonBreakoutPairs: [String]?
     var useAiLearner: Bool?
     var aiMinWinProb: Double?
+    var useIctSweep: Bool?
 }
 
 // MARK: - Auto-Trader Trade Record
@@ -204,4 +205,5 @@ struct AutoTraderConfigPatch: Codable {
     var useLondonBreakout: Bool?
     var useAiLearner: Bool?
     var aiMinWinProb: Double?
+    var useIctSweep: Bool?
 }

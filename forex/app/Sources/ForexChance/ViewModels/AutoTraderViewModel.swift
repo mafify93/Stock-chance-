@@ -19,6 +19,7 @@ final class AutoTraderViewModel: ObservableObject {
     @Published var sessionFilter: Bool = true
     @Published var londonBreakout: Bool = true
     @Published var useAiLearner: Bool = true
+    @Published var useIctSweep: Bool = true
 
     // AI Learner stats
     @Published var learnerStats: LearnerStats?
@@ -75,6 +76,7 @@ final class AutoTraderViewModel: ObservableObject {
         sessionFilter = config.sessionFilter
         londonBreakout = config.useLondonBreakout ?? true
         useAiLearner = config.useAiLearner ?? true
+        useIctSweep = config.useIctSweep ?? true
     }
 
     // MARK: - Learner stats
@@ -143,7 +145,8 @@ final class AutoTraderViewModel: ObservableObject {
             sessionFilter: sessionFilter,
             useLondonBreakout: londonBreakout,
             useAiLearner: useAiLearner,
-            aiMinWinProb: nil
+            aiMinWinProb: nil,
+            useIctSweep: useIctSweep
         )
         do {
             try await client.updateAutoTraderConfig(patch)

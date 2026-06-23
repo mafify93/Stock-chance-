@@ -62,6 +62,9 @@ class AutoTraderConfig:
     use_ai_learner: bool = True             # adjust confidence using trade outcome history
     ai_min_win_prob: float = 0.35           # skip entry if learner estimates win prob < 35%
 
+    # --- ICT Session Sweep ---
+    use_ict_sweep: bool = True              # NY 9am setup: Asia/London range sweep + FVG reversal
+
     # --- Universe ---
     pairs: list[str] = field(default_factory=lambda: [
         "EUR_USD", "GBP_USD", "USD_JPY", "EUR_JPY", "GBP_JPY",

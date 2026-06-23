@@ -48,6 +48,7 @@ _PAIR_IDS: dict[str, float] = {
 _SIGNAL_IDS: dict[str, float] = {
     "ema_vwap_rsi": 0.0,
     "london_breakout": 1.0,
+    "ict_sweep": 2.0,
 }
 
 

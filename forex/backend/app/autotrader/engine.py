@@ -32,6 +32,7 @@ from ..providers import oanda
 from ..sessions import get_market_session, in_blackout, is_rollover, ny_close_imminent
 from ..signals import analyze as swing_analyze
 from .calendar import refresh_blackout_windows
+from .ict_sweep import ict_session_sweep
 from .learner import TradeFeatures, trade_learner
 from .london_breakout import london_open_breakout
 from .risk import calculate_units
@@ -595,6 +596,24 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
         except Exception as exc:
             log.debug(f"AutoTrader {pair}: London Breakout error (falling back): {exc}")
 
+    # ICT Session Sweep: NY 9am setup (13:00–15:00 UTC)
+    # Only runs when no London Breakout signal was found (the time windows never overlap).
+    if day_sig is None and cfg.use_ict_sweep:
+        try:
+            df_m1 = await asyncio.to_thread(
+                oanda.get_candles, pair, state.token, "M1", 750, state.base_url
+            )
+            ict_sig = ict_session_sweep(pair, df_m1, now)
+            if ict_sig is not None:
+                day_sig = ict_sig
+                signal_type = "ict_sweep"
+                log.debug(
+                    f"AutoTrader {pair}: ICT Session Sweep "
+                    f"({day_sig.action}, conf={day_sig.confidence:.0f}%)"
+                )
+        except Exception as exc:
+            log.debug(f"AutoTrader {pair}: ICT Sweep error (falling back): {exc}")
+
     if day_sig is None:
         # Fall back to EMA/VWAP/RSI intraday signal
         try:
@@ -734,9 +753,14 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
         delta = pip_module.from_pips(pair, stop_pips)
         stop_price = (entry - delta) if is_buy else (entry + delta)
 
-    target_pips = stop_pips * cfg.rr_ratio
-    delta_tp = pip_module.from_pips(pair, target_pips)
-    target_price = (entry + delta_tp) if is_buy else (entry - delta_tp)
+    # Use the signal's pre-computed target (e.g. ICT liquidity draw) when available;
+    # otherwise compute from the configured R:R ratio.
+    if day_sig.target is not None:
+        target_price = day_sig.target
+    else:
+        target_pips = stop_pips * cfg.rr_ratio
+        delta_tp = pip_module.from_pips(pair, target_pips)
+        target_price = (entry + delta_tp) if is_buy else (entry - delta_tp)
 
     order_units = units if is_buy else -units
 

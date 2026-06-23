@@ -79,6 +79,7 @@ class ConfigPatch(BaseModel):
     london_breakout_pairs: list[str] | None = None
     use_ai_learner: bool | None = None
     ai_min_win_prob: float | None = None
+    use_ict_sweep: bool | None = None
 
 
 class BacktestRequest(BaseModel):
@@ -141,6 +142,7 @@ class ConfigOut(BaseModel):
     london_breakout_pairs: list[str]
     use_ai_learner: bool
     ai_min_win_prob: float
+    use_ict_sweep: bool
 
 
 class StatusOut(BaseModel):

@@ -308,6 +308,11 @@ struct AutoTraderView: View {
                 .font(.subheadline)
                 .foregroundColor(.white)
 
+            Toggle("ICT Session Sweep (NY 9am)", isOn: $vm.useIctSweep)
+                .tint(Theme.accent)
+                .font(.subheadline)
+                .foregroundColor(.white)
+
             if vm.status?.running == true {
                 Text("Changes apply to the running bot immediately.")
                     .font(.caption2)
@@ -325,6 +330,7 @@ struct AutoTraderView: View {
         .onChange(of: vm.sessionFilter) { _ in applyConfig() }
         .onChange(of: vm.londonBreakout) { _ in applyConfig() }
         .onChange(of: vm.useAiLearner) { _ in applyConfig() }
+        .onChange(of: vm.useIctSweep) { _ in applyConfig() }
     }
 
     private func applyConfig() {
