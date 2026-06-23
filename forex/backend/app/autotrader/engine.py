@@ -489,7 +489,12 @@ async def scan_and_trade() -> None:
             state.halt_reason = ""
 
     if state.start_of_day_balance and state.start_of_day_balance > 0:
-        loss_pct = -state.daily_pl / state.start_of_day_balance
+        # Primary check: live NAV vs opening balance — immune to P&L tracking gaps
+        # (catches losses from trades closed between restarts, or any sync failure).
+        nav_loss_pct = (state.start_of_day_balance - nav) / state.start_of_day_balance
+        # Secondary check: accumulated daily_pl (catches floating losses on open positions)
+        pl_loss_pct = -state.daily_pl / state.start_of_day_balance
+        loss_pct = max(nav_loss_pct, pl_loss_pct)
         if loss_pct >= cfg.daily_loss_limit_pct:
             msg = (
                 f"Daily loss limit reached: −{loss_pct:.1%} "

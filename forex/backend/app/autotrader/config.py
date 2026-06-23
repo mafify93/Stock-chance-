@@ -14,18 +14,18 @@ class AutoTraderConfig:
     # --- Risk / sizing ---
     risk_pct: float = 0.01          # fraction of NAV to risk per trade (1 %)
     rr_ratio: float = 2.0           # reward-to-risk ratio for take-profit placement
-    min_stop_pips: float = 8.0      # clamp stop distance from below
+    min_stop_pips: float = 12.0     # clamp stop distance from below
     max_stop_pips: float = 30.0     # clamp stop distance from above
     breakeven_stop: bool = True     # at 1R profit, slide stop to entry + 1 pip
 
     # --- Position management ---
     max_positions: int = 2          # max concurrent open bot positions
-    max_trades_per_day: int = 50    # daily trade cap
-    daily_loss_limit_pct: float = 0.03  # halt if daily P&L < −3 % of start balance
+    max_trades_per_day: int = 5     # daily trade cap
+    daily_loss_limit_pct: float = 0.015  # halt if daily P&L < −1.5 % of start balance
 
     # --- Entry filters ---
-    min_confidence: float = 0.50    # minimum intraday signal confidence (0–1 scale)
-    max_spread_pips: float = 3.0    # skip pair if live spread exceeds this
+    min_confidence: float = 0.65    # minimum intraday signal confidence (0–1 scale)
+    max_spread_pips: float = 2.0    # skip pair if live spread exceeds this
     session_filter: bool = True     # only trade during London or NY sessions
     h1_trend_filter: bool = False   # OFF: backtest proved harmful
     signal_confirmation: bool = True  # require same signal on 2 consecutive scans
