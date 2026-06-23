@@ -226,6 +226,14 @@ def simulate_pair(
                 break
         return score
 
+    # Signal confirmation state for EMA (mirrors the live engine).
+    # EMA requires the SAME direction on 2 consecutive bars before entering.
+    # This eliminates one-bar whipsaws — the largest source of false entries —
+    # and makes the backtest representative of what the live bot actually trades.
+    # ICT strategies (London Breakout, ORB, Order Block) are structural/event-based
+    # and self-confirming; they bypass this check.
+    ema_pending: str | None = None  # direction seen on the previous EMA bar
+
     i = 25  # warm-up so EMA20 / opening-range have data
     n = len(df)
     while i < n - 1:
@@ -301,10 +309,10 @@ def simulate_pair(
                     continue  # ranging NY open — skip EMA
 
             # NY open momentum alignment (13:00–16:00 UTC).
-            # EMA uses a London-anchored VWAP that carries the London session's
-            # directional bias into NY open. This can generate buy signals right as
-            # NY participants take profit and reverse. The filter gates EMA entries
-            # to only fire when price confirms the NY session's actual direction.
+            # EMA's VWAP is anchored to midnight UTC. A strong London uptrend keeps
+            # price "above VWAP" through NY open even as NY participants take profit
+            # and reverse — generating buy signals into a reversal. The filter gates
+            # EMA entries to only fire when price confirms the NY session direction.
             if cfg.use_ny_open_momentum_filter and 13 <= bar_dt.hour < 16:
                 ny_ref = ny_open_by_day.get(bar_dt.date())
                 if ny_ref is not None:
@@ -318,7 +326,29 @@ def simulate_pair(
         else:
             sig, _ = ict_result
 
-        if sig.action == "DAY_HOLD" or sig.confidence < cfg.min_confidence * 100:
+        # ── Signal confirmation (EMA only — mirrors live engine) ─────────────
+        # Live engine requires the same direction on 2 consecutive scan cycles
+        # before entering (signal_confirmation = True by default). Without this
+        # the backtest enters on every qualifying EMA bar, inflating trade count
+        # with one-bar whipsaws that the live bot would never take.
+        # ICT signals are self-confirming (structural event, not momentum) — skip.
+        if cfg.signal_confirmation and signal_type == "ema_fallback":
+            if sig.action == "DAY_HOLD":
+                ema_pending = None
+                i += 1
+                continue
+            prev_pending = ema_pending
+            ema_pending = sig.action   # store this bar's direction
+            if prev_pending != sig.action:
+                i += 1
+                continue  # first sighting — wait for next bar
+            ema_pending = None  # confirmed — clear so next trade starts fresh
+        elif sig.action == "DAY_HOLD":
+            ema_pending = None  # HOLD also resets the EMA pending state
+            i += 1
+            continue
+
+        if sig.confidence < cfg.min_confidence * 100:
             i += 1
             continue
 
@@ -443,6 +473,9 @@ def simulate_pair(
             risk_scale = 0.50
 
         # Resume scanning from the bar after the exit (one position per pair).
+        # Clear pending EMA state: the position ran for N bars and the old pending
+        # direction is stale — next signal must confirm independently.
+        ema_pending = None
         i = max(entry_idx + 1, j + 1)
 
     return trades, nav

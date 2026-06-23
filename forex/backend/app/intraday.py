@@ -107,7 +107,7 @@ def compute_day_signal(pair: str, df: pd.DataFrame) -> DaySignalResult:
     """Compute a same-day Buy/Sell/Hold signal from 5-minute intraday bars."""
     decimals = pips.price_decimals(pair)
 
-    session_df = london_session_bars(df)
+    session_df = latest_session(df)
     if session_df is None or len(session_df) < 3:
         raise ValueError(f"Not enough intraday data for {pips.display(pair)} yet today")
 

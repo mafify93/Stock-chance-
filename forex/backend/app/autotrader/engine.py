@@ -67,10 +67,13 @@ log = logging.getLogger(__name__)
 
 # Pairs that tend to move together (positive correlation ~0.70–0.94 on H4).
 # We block opening both in the same direction to avoid hidden double-exposure.
+# EUR_JPY and GBP_JPY share JPY as the counter-currency (~0.93 corr); taking
+# both long simultaneously doubles JPY exposure without proportional extra edge.
 POSITIVE_CORR_PAIRS: list[tuple[str, str]] = [
     ("EUR_USD", "GBP_USD"),
     ("EUR_USD", "AUD_USD"),
     ("GBP_USD", "AUD_USD"),
+    ("EUR_JPY", "GBP_JPY"),
 ]
 
 
@@ -778,9 +781,9 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
                 log.debug(f"AutoTrader {pair}: ATR NY-open check failed (non-fatal): {exc}")
 
         # NY open momentum alignment (13:00–16:00 UTC).
-        # EMA uses a London-anchored VWAP that carries the London session's directional
-        # bias into NY open. Gate EMA entries to only fire when price confirms the NY
-        # session's actual direction — i.e. price vs. the first 13:00 UTC bar's open.
+        # EMA's midnight VWAP carries the London session's directional bias into NY open.
+        # Gate EMA entries to only fire when price confirms the actual NY session direction
+        # — i.e. price vs. the first 13:00 UTC bar's open.
         if cfg.use_ny_open_momentum_filter and 13 <= now.hour < 16:
             try:
                 today_ny_start = now.replace(hour=13, minute=0, second=0, microsecond=0)
