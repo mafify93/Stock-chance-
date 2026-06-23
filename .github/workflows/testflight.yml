@@ -1,7 +1,8 @@
 name: TestFlight Distribution
 
-# Trigger manually from GitHub.com (works on iPhone) or on any push to the
-# feature branch that touches the iOS app.
+# Manual trigger only — run from GitHub.com → Actions when you're ready to ship.
+# Requires APP_STORE_CONNECT_KEY_ID, APP_STORE_CONNECT_ISSUER_ID,
+# APP_STORE_CONNECT_KEY_CONTENT, and APPLE_TEAM_ID secrets to be set first.
 on:
   workflow_dispatch:
     inputs:
@@ -9,13 +10,6 @@ on:
         description: "What's new in this build (shown in TestFlight)"
         required: false
         default: "Latest build from Claude Code session"
-  push:
-    branches:
-      - claude/new-session-tyf1cg
-      - main
-    paths:
-      - "forex/app/**"
-      - ".github/workflows/testflight.yml"
 
 jobs:
   testflight:
