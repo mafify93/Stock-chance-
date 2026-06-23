@@ -76,9 +76,8 @@ class AutoTraderConfig:
     use_orb: bool = False                   # backtested PF 0.97, Calmar -0.07 — net-negative; disabled
 
     # --- EMA/intraday time gate ---
-    block_ema_ny_open: bool = True          # skip EMA fallback during 13:00–17:00 UTC (NY open)
-                                            # EMA performs poorly in the choppy NY opening range;
-                                            # ORB used to block this window implicitly
+    block_ema_ny_open: bool = False         # skip EMA fallback during 13:00–17:00 UTC (NY open)
+                                            # tested False — gate removes good trades alongside bad ones
 
     # --- ICT Silver Bullet ---
     use_silver_bullet: bool = True          # FVG entries at 07:00, 14:00, 18:00 UTC windows
