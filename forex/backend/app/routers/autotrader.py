@@ -46,7 +46,6 @@ class StartRequest(BaseModel):
     risk_pct: float | None = None
     max_positions: int | None = None
     max_trades_per_day: int | None = None
-    daily_loss_limit_pct: float | None = None
     rr_ratio: float | None = None
     max_spread_pips: float | None = None
     min_confidence: float | None = None
@@ -58,7 +57,6 @@ class ConfigPatch(BaseModel):
     risk_pct: float | None = None
     max_positions: int | None = None
     max_trades_per_day: int | None = None
-    daily_loss_limit_pct: float | None = None
     rr_ratio: float | None = None
     max_spread_pips: float | None = None
     min_confidence: float | None = None
@@ -127,7 +125,6 @@ class ConfigOut(BaseModel):
     max_stop_pips: float
     max_positions: int
     max_trades_per_day: int
-    daily_loss_limit_pct: float
     min_confidence: float
     max_spread_pips: float
     session_filter: bool
@@ -207,7 +204,7 @@ async def start_bot(req: StartRequest):
 
     cfg = AutoTraderConfig()
     for field in (
-        "risk_pct", "max_positions", "max_trades_per_day", "daily_loss_limit_pct",
+        "risk_pct", "max_positions", "max_trades_per_day",
         "rr_ratio", "max_spread_pips", "min_confidence", "session_filter", "pairs",
     ):
         val = getattr(req, field, None)

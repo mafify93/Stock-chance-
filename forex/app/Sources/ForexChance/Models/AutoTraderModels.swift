@@ -9,7 +9,6 @@ struct AutoTraderConfig: Codable, Hashable {
     var maxStopPips: Double
     var maxPositions: Int
     var maxTradesPerDay: Int
-    var dailyLossLimitPct: Double
     var minConfidence: Double
     var maxSpreadPips: Double
     var sessionFilter: Bool
@@ -186,7 +185,6 @@ struct AutoTraderStartRequest: Codable {
     var riskPct: Double?
     var maxPositions: Int?
     var maxTradesPerDay: Int?
-    var dailyLossLimitPct: Double?
     var rrRatio: Double?
     var maxSpreadPips: Double?
     var minConfidence: Double?
@@ -200,7 +198,6 @@ struct AutoTraderConfigPatch: Codable {
     var riskPct: Double?
     var maxPositions: Int?
     var maxTradesPerDay: Int?
-    var dailyLossLimitPct: Double?
     var rrRatio: Double?
     var maxSpreadPips: Double?
     var minConfidence: Double?

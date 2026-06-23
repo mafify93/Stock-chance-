@@ -587,25 +587,6 @@ async def scan_and_trade() -> None:
             # Refresh economic calendar blackout windows for the new trading day.
             refresh_blackout_windows(cfg)
 
-    if state.start_of_day_balance and state.start_of_day_balance > 0:
-        # Primary check: live NAV vs opening balance — immune to P&L tracking gaps
-        # (catches losses from trades closed between restarts, or any sync failure).
-        nav_loss_pct = (state.start_of_day_balance - nav) / state.start_of_day_balance
-        # Secondary check: accumulated daily_pl (catches floating losses on open positions)
-        pl_loss_pct = -state.daily_pl / state.start_of_day_balance
-        loss_pct = max(nav_loss_pct, pl_loss_pct)
-        if loss_pct >= cfg.daily_loss_limit_pct:
-            msg = (
-                f"Daily loss limit reached: −{loss_pct:.1%} "
-                f"(limit −{cfg.daily_loss_limit_pct:.1%})"
-            )
-            with state._lock:
-                state.halted = True
-                state.halt_reason = msg
-            log.warning(f"AutoTrader HALTED: {msg}")
-            telegram.notify_halt(msg)
-            return
-
     # ── Trade-count guards ────────────────────────────────────────────────────
     if state.trades_today >= cfg.max_trades_per_day:
         log.debug("AutoTrader: daily trade cap reached")

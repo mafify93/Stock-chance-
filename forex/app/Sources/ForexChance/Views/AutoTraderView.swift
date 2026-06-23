@@ -285,7 +285,6 @@ struct AutoTraderView: View {
 
             configSlider(label: "Risk per trade", value: $vm.riskPct, range: 0.5...3, step: 0.25, format: "%.2f%%")
             configSlider(label: "Reward/Risk ratio", value: $vm.rrRatio, range: 1.0...3.0, step: 0.25, format: "%.2fx")
-            configSlider(label: "Daily loss limit", value: $vm.dailyLossLimitPct, range: 1...6, step: 0.5, format: "%.1f%%")
             configSlider(label: "Min confidence", value: $vm.minConfidence, range: 35...80, step: 5, format: "%.0f%%")
             configSlider(label: "Max spread (pips)", value: $vm.maxSpreadPips, range: 1...8, step: 0.5, format: "%.1f")
             configStepper(label: "Max positions", value: $vm.maxPositions, range: 1...4)
@@ -337,7 +336,6 @@ struct AutoTraderView: View {
         .cardStyle()
         .onChange(of: vm.riskPct) { _ in applyConfig() }
         .onChange(of: vm.rrRatio) { _ in applyConfig() }
-        .onChange(of: vm.dailyLossLimitPct) { _ in applyConfig() }
         .onChange(of: vm.minConfidence) { _ in applyConfig() }
         .onChange(of: vm.maxSpreadPips) { _ in applyConfig() }
         .onChange(of: vm.maxPositions) { _ in applyConfig() }

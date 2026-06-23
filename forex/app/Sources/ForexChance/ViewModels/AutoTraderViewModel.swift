@@ -13,7 +13,6 @@ final class AutoTraderViewModel: ObservableObject {
     @Published var rrRatio: Double = 2.0
     @Published var maxPositions: Int = 2
     @Published var maxTradesPerDay: Int = 5
-    @Published var dailyLossLimitPct: Double = 1.5  // shown as percent
     @Published var minConfidence: Double = 65.0     // shown as percent
     @Published var maxSpreadPips: Double = 2.0
     @Published var sessionFilter: Bool = true
@@ -73,7 +72,6 @@ final class AutoTraderViewModel: ObservableObject {
         rrRatio = config.rrRatio
         maxPositions = config.maxPositions
         maxTradesPerDay = config.maxTradesPerDay
-        dailyLossLimitPct = config.dailyLossLimitPct * 100
         minConfidence = config.minConfidence * 100
         maxSpreadPips = config.maxSpreadPips
         sessionFilter = config.sessionFilter
@@ -144,7 +142,6 @@ final class AutoTraderViewModel: ObservableObject {
             riskPct: riskPct / 100,
             maxPositions: maxPositions,
             maxTradesPerDay: maxTradesPerDay,
-            dailyLossLimitPct: dailyLossLimitPct / 100,
             rrRatio: rrRatio,
             maxSpreadPips: maxSpreadPips,
             minConfidence: minConfidence / 100,
@@ -205,7 +202,6 @@ final class AutoTraderViewModel: ObservableObject {
             riskPct: riskPct / 100,
             maxPositions: maxPositions,
             maxTradesPerDay: maxTradesPerDay,
-            dailyLossLimitPct: dailyLossLimitPct / 100,
             rrRatio: rrRatio,
             maxSpreadPips: maxSpreadPips,
             minConfidence: minConfidence / 100,
