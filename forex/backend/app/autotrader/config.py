@@ -79,10 +79,10 @@ class AutoTraderConfig:
     use_silver_bullet: bool = True          # FVG entries at 07:00, 14:00, 18:00 UTC windows
 
     # --- Order Block Reversal ---
-    use_order_blocks: bool = True           # last opposing candle before impulse (M15)
+    use_order_blocks: bool = False          # backtested PF 0.94 — net-negative; disabled by default
 
     # --- Volatility regime filter ---
-    use_atr_expansion_filter: bool = False  # skip London Breakout / ORB when ATR < recent avg
+    use_atr_expansion_filter: bool = True   # skip London Breakout / ORB when ATR < recent avg
                                             # (contracting ATR = ranging market = bad for breakouts)
     atr_expansion_lookback: int = 20        # number of M5 bars to average ATR over for the check
 
