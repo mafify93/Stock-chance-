@@ -17,7 +17,7 @@ class AutoTraderConfig:
     min_stop_pips: float = 12.0     # clamp stop distance from below
     max_stop_pips: float = 30.0     # clamp stop distance from above
     breakeven_stop: bool = True     # slide stop to entry + 1 pip once profit ≥ breakeven_r × risk
-    breakeven_r: float = 0.5        # fraction of 1R at which breakeven fires (0.5 = half the stop)
+    breakeven_r: float = 1.0        # fraction of 1R at which breakeven fires (1.0 = full stop away = out of noise zone)
     profit_lock_pips: float = 8.0   # also fire breakeven when profit hits this many pips (whichever
                                     # triggers first: R-based or pip-based)
     hwm_close: bool = True          # close immediately if trade was up ≥ hwm_r and falls back to 0
@@ -62,7 +62,7 @@ class AutoTraderConfig:
     # --- London Open Breakout ---
     use_london_breakout: bool = True        # use Asian-range breakout at London open
     london_breakout_pairs: list[str] = field(default_factory=lambda: [
-        "EUR_USD", "GBP_USD",               # tightest spreads, cleanest breakouts
+        "EUR_USD", "GBP_JPY",               # tightest spreads, cleanest breakouts
     ])
 
     # --- AI self-learning ---

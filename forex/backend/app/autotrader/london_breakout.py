@@ -11,10 +11,10 @@ This is one of the best-documented structural edges in retail forex:
 
 Entry rules:
 1. Time gate: 07:00–10:00 UTC only (stale after 10:00)
-2. Asian range must be ≥ 8 pips (skip dead/flat sessions)
+2. Asian range must be ≥ 6 pips (skip dead/flat sessions)
 3. Price must clear Asian high/low by a 2-pip buffer (confirmed break, not a wick)
-4. ATR of Asian session bars must be ≥ 5 pips (skip extremely choppy micro-ranges)
-5. Recommended pairs: EUR_USD, GBP_USD only (tightest spreads, cleanest breakouts)
+4. ATR of Asian session bars must be ≥ 3 pips (skip extremely choppy micro-ranges)
+5. Recommended pairs: EUR_USD, GBP_USD, GBP_JPY (tightest spreads, cleanest breakouts)
 """
 from __future__ import annotations
 
@@ -33,8 +33,8 @@ def london_open_breakout(
     df: pd.DataFrame,
     now: datetime,
     breakout_buffer_pips: float = 2.0,
-    min_asian_range_pips: float = 8.0,
-    min_atr_pips: float = 5.0,
+    min_asian_range_pips: float = 6.0,
+    min_atr_pips: float = 3.0,
 ) -> DaySignalResult | None:
     """Evaluate the London Open Breakout for one pair.
 
@@ -61,14 +61,22 @@ def london_open_breakout(
     if not (7 <= hour_utc < 10):
         return None
 
+    # ── Normalise timezones ───────────────────────────────────────────────────
+    # OANDA sometimes returns tz-naive timestamps. Comparing a tz-aware anchor
+    # (computed from `now`) against a tz-naive index raises a TypeError that is
+    # silently swallowed by the backtest's try/except — producing 0 trades.
+    # Solution: normalise everything to UTC-aware before any comparison.
+    if df.index.tzinfo is None:
+        df = df.copy()
+        df.index = df.index.tz_localize("UTC")
+
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+
     # ── Isolate Asian session bars ────────────────────────────────────────────
     # Asian session = 22:00 UTC yesterday → 07:00 UTC today
     today_open = now.replace(hour=7, minute=0, second=0, microsecond=0)
     asian_start = today_open - timedelta(hours=9)  # 22:00 UTC previous day
-
-    if df.index.tzinfo is None:
-        df = df.copy()
-        df.index = df.index.tz_localize("UTC")
 
     asian_df = df[(df.index >= asian_start) & (df.index < today_open)]
     if len(asian_df) < 5:
