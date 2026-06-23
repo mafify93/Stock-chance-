@@ -83,6 +83,8 @@ class ConfigPatch(BaseModel):
     use_silver_bullet: bool | None = None
     use_order_blocks: bool | None = None
     daily_loss_halt_pct: float | None = None
+    use_atr_expansion_filter: bool | None = None
+    atr_expansion_lookback: int | None = None
 
 
 class BacktestRequest(BaseModel):
@@ -103,6 +105,7 @@ class BacktestRequest(BaseModel):
     max_trades_per_day: int | None = None
     min_stop_pips: float | None = None
     max_stop_pips: float | None = None
+    use_atr_expansion_filter: bool | None = None
 
 
 class TradeOut(BaseModel):
@@ -151,6 +154,8 @@ class ConfigOut(BaseModel):
     use_silver_bullet: bool
     use_order_blocks: bool
     daily_loss_halt_pct: float
+    use_atr_expansion_filter: bool
+    atr_expansion_lookback: int
 
 
 class StatusOut(BaseModel):
@@ -270,6 +275,7 @@ async def backtest(req: BacktestRequest):
         "risk_pct", "rr_ratio", "min_confidence", "session_filter",
         "h1_trend_filter", "breakeven_stop",
         "max_trades_per_day", "min_stop_pips", "max_stop_pips",
+        "use_atr_expansion_filter",
     ):
         val = getattr(req, field, None)
         if val is not None:

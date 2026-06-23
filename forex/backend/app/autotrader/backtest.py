@@ -31,6 +31,7 @@ from datetime import datetime
 import pandas as pd
 
 from .. import pips as pip_module
+from ..indicators import average_true_range
 from ..intraday import compute_day_signal
 from ..sessions import get_market_session
 from ..signals import analyze as swing_analyze
@@ -58,6 +59,7 @@ class BacktestTrade:
     net_pips: float      # gross minus the full spread
     pnl_usd: float       # net_pips priced through units & pip value
     confidence: float
+    signal_type: str = "ema_fallback"  # "london_breakout"|"orb"|"order_block"|"ema_fallback"
 
 
 @dataclass
@@ -78,6 +80,7 @@ class BacktestStats:
     return_pct: float = 0.0           # net P&L as % of starting NAV
     max_drawdown_pct: float = 0.0
     ending_nav: float = 0.0
+    calmar_ratio: float = 0.0         # return_pct / max_drawdown_pct (higher = better risk-adj return)
 
 
 def _mid_pips(pair: str, delta: float) -> float:
@@ -101,8 +104,8 @@ def _try_ict_signals(
     bar_dt: datetime,
     cfg: AutoTraderConfig,
     m15_full: "pd.DataFrame | None" = None,
-):
-    """Attempt ICT strategies in priority order; return first hit or None.
+) -> "tuple | None":
+    """Attempt ICT strategies in priority order; return (signal, strategy_name) or None.
 
     Silver Bullet and ICT Sweep are live-only (require M1 bars not available
     in the M5 backtest dataset).
@@ -117,7 +120,7 @@ def _try_ict_signals(
         try:
             sig = london_open_breakout(pair, window_m5, bar_dt)
             if sig and sig.action != "DAY_HOLD" and sig.stop_pips:
-                return sig
+                return sig, "london_breakout"
         except Exception:
             pass
 
@@ -126,7 +129,7 @@ def _try_ict_signals(
         try:
             sig = opening_range_breakout(pair, window_m5, bar_dt)
             if sig and sig.action != "DAY_HOLD" and sig.stop_pips:
-                return sig
+                return sig, "orb"
         except Exception:
             pass
 
@@ -140,7 +143,7 @@ def _try_ict_signals(
             if len(m15) >= 5:
                 sig = order_block_reversal(pair, m15, bar_dt)
                 if sig and sig.action != "DAY_HOLD" and sig.stop_pips:
-                    return sig
+                    return sig, "order_block"
         except Exception:
             pass
 
@@ -177,6 +180,16 @@ def simulate_pair(
     if cfg.use_order_blocks:
         try:
             m15_precomputed = _resample_to_m15(df)
+        except Exception:
+            pass
+
+    # Pre-compute ATR14 for the ATR expansion regime filter.
+    # Breakout strategies (London Breakout, ORB) need expanding volatility to work —
+    # when ATR is contracting the market is in a range and breakouts get faded.
+    atr_series: pd.Series | None = None
+    if cfg.use_atr_expansion_filter:
+        try:
+            atr_series = average_true_range(df, 14)
         except Exception:
             pass
 
@@ -228,15 +241,35 @@ def simulate_pair(
         bar_dt = bar_time.to_pydatetime()
 
         # Try ICT strategies first (London breakout, ORB, Order Block)
-        sig = _try_ict_signals(pair, window, bar_dt, cfg, m15_full=m15_precomputed)
+        ict_result = _try_ict_signals(pair, window, bar_dt, cfg, m15_full=m15_precomputed)
+        signal_type = "ema_fallback"
+
+        if ict_result is not None:
+            sig, strategy_name = ict_result
+            # ATR expansion filter: breakout strategies need expanding volatility.
+            # When ATR is below ~80% of its recent average the market is consolidating
+            # and breakouts tend to get faded — skip London Breakout and ORB entries.
+            if (cfg.use_atr_expansion_filter
+                    and strategy_name in ("london_breakout", "orb")
+                    and atr_series is not None):
+                atr_val = atr_series.iloc[i]
+                lb_start = max(0, i - cfg.atr_expansion_lookback)
+                atr_mean = atr_series.iloc[lb_start:i].mean()
+                if not pd.isna(atr_val) and not pd.isna(atr_mean) and atr_mean > 0:
+                    if atr_val < atr_mean * 0.8:
+                        ict_result = None  # consolidating — skip this breakout signal
+            if ict_result is not None:
+                signal_type = strategy_name
 
         # Fallback: intraday VWAP/RSI/EMA signal
-        if sig is None:
+        if ict_result is None:
             try:
                 sig = compute_day_signal(pair, window)
             except Exception:
                 i += 1
                 continue
+        else:
+            sig, _ = ict_result
 
         if sig.action == "DAY_HOLD" or sig.confidence < cfg.min_confidence * 100:
             i += 1
@@ -343,6 +376,7 @@ def simulate_pair(
                 net_pips=net_pips,
                 pnl_usd=round(pnl_usd, 2),
                 confidence=sig.confidence,
+                signal_type=signal_type,
             )
         )
         trades_today += 1
@@ -403,6 +437,7 @@ def summarize(pair: str, trades: list[BacktestTrade], starting_nav: float, endin
             dd = (peak - equity) / peak
             max_dd = max(max_dd, dd)
     stats.max_drawdown_pct = round(max_dd * 100, 2)
+    stats.calmar_ratio = round(stats.return_pct / stats.max_drawdown_pct, 2) if stats.max_drawdown_pct > 0 else 0.0
     return stats
 
 
@@ -434,6 +469,22 @@ def run_backtest(
     all_trades.sort(key=lambda t: t.entry_time)
     overall = summarize("ALL", all_trades, starting_nav, nav)
 
+    # Per-strategy breakdown: group all trades by signal_type and summarise each.
+    # This reveals which strategy is driving profits and which is causing drawdowns.
+    from collections import defaultdict
+    by_strategy: dict[str, list[BacktestTrade]] = defaultdict(list)
+    for t in all_trades:
+        by_strategy[t.signal_type].append(t)
+
+    per_strategy: list[BacktestStats] = []
+    for strategy_name in ("london_breakout", "orb", "order_block", "ema_fallback"):
+        strategy_trades = by_strategy.get(strategy_name, [])
+        if not strategy_trades:
+            continue
+        st_pnl = sum(t.pnl_usd for t in strategy_trades)
+        st_stats = summarize(strategy_name, strategy_trades, starting_nav, starting_nav + st_pnl)
+        per_strategy.append(st_stats)
+
     return {
         "starting_nav": round(starting_nav, 2),
         "ending_nav": round(nav, 2),
@@ -447,9 +498,11 @@ def run_backtest(
             "max_trades_per_day": cfg.max_trades_per_day,
             "min_stop_pips": cfg.min_stop_pips,
             "max_stop_pips": cfg.max_stop_pips,
+            "use_atr_expansion_filter": cfg.use_atr_expansion_filter,
         },
         "overall": overall.__dict__,
         "per_pair": [s.__dict__ for s in per_pair],
+        "per_strategy": [s.__dict__ for s in per_strategy],
         "trade_count": len(all_trades),
         "trades": [t.__dict__ for t in all_trades[:200]],  # cap payload
     }

@@ -19,6 +19,9 @@ struct BacktestView: View {
                     if let result = vm.backtestResult {
                         summaryCard(result)
                         equityCurveCard(result)
+                        if let strategies = result.perStrategy, !strategies.isEmpty {
+                            perStrategyCard(strategies)
+                        }
                         perPairCard(result)
                         if !result.trades.isEmpty {
                             tradeListCard(result.trades)
@@ -142,8 +145,9 @@ struct BacktestView: View {
                     valueColor: o.netPnlUsd >= 0 ? Theme.profit : Theme.loss
                 )
                 StatTile(
-                    label: "Net Pips",
-                    value: String(format: "%@%.0f", o.netPips >= 0 ? "+" : "", o.netPips)
+                    label: "Calmar",
+                    value: String(format: "%.2f", result.calmarRatio),
+                    valueColor: result.calmarRatio >= 1.0 ? Theme.profit : (result.calmarRatio >= 0.5 ? Theme.accent : Theme.loss)
                 )
             }
 
@@ -223,6 +227,71 @@ struct BacktestView: View {
         return points
     }
 
+    // MARK: - Per-strategy breakdown
+
+    private func strategyDisplayName(_ key: String) -> String {
+        switch key {
+        case "london_breakout": return "London Breakout"
+        case "orb":             return "Opening Range Breakout"
+        case "order_block":     return "Order Block Reversal"
+        default:                return "EMA / Intraday"
+        }
+    }
+
+    private func perStrategyCard(_ strategies: [BacktestStatsModel]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("By Strategy")
+                .font(.caption)
+                .foregroundColor(Theme.textSecondary)
+                .textCase(.uppercase)
+
+            Text("Which strategy is making (or losing) money?")
+                .font(.caption2)
+                .foregroundColor(Theme.textSecondary)
+
+            ForEach(strategies) { stat in
+                VStack(spacing: 4) {
+                    HStack {
+                        Text(strategyDisplayName(stat.pair))
+                            .font(.subheadline.bold())
+                            .foregroundColor(.white)
+                        Spacer()
+                        Text(Format.signedMoney(stat.netPnlUsd))
+                            .font(.subheadline.bold())
+                            .foregroundColor(stat.netPnlUsd >= 0 ? Theme.profit : Theme.loss)
+                    }
+                    HStack {
+                        Text("\(stat.trades) trades")
+                            .font(.caption)
+                            .foregroundColor(Theme.textSecondary)
+                        Text("·")
+                            .font(.caption)
+                            .foregroundColor(Theme.textSecondary)
+                        Text(String(format: "%.0f%% WR", stat.winRatePct))
+                            .font(.caption)
+                            .foregroundColor(stat.winRatePct >= 50 ? Theme.profit : Theme.loss)
+                        Text("·")
+                            .font(.caption)
+                            .foregroundColor(Theme.textSecondary)
+                        Text(String(format: "PF %.2f", stat.profitFactor))
+                            .font(.caption)
+                            .foregroundColor(stat.profitFactor >= 1.0 ? Theme.profit : Theme.loss)
+                        Spacer()
+                        if let calmar = stat.calmarRatio {
+                            Text(String(format: "Calmar %.2f", calmar))
+                                .font(.caption)
+                                .foregroundColor(calmar >= 1.0 ? Theme.profit : (calmar >= 0.5 ? Theme.accent : Theme.loss))
+                        }
+                    }
+                }
+                if stat.id != (strategies.last?.id ?? "") {
+                    Divider().background(Theme.cardBorder)
+                }
+            }
+        }
+        .cardStyle()
+    }
+
     // MARK: - Per-pair breakdown
 
     private func perPairCard(_ result: BacktestResult) -> some View {
@@ -275,6 +344,13 @@ struct BacktestView: View {
                     Text(trade.side.uppercased())
                         .font(.caption2)
                         .foregroundColor(trade.side == "long" ? Theme.profit : Theme.loss)
+                    Text(trade.strategyLabel)
+                        .font(.caption2.bold())
+                        .foregroundColor(Theme.accent)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(Theme.accent.opacity(0.15))
+                        .cornerRadius(3)
                     Spacer()
                     Text(String(format: "%@%.0fp", trade.netPips >= 0 ? "+" : "", trade.netPips))
                         .font(.caption.monospacedDigit())

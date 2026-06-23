@@ -81,6 +81,11 @@ class AutoTraderConfig:
     # --- Order Block Reversal ---
     use_order_blocks: bool = True           # last opposing candle before impulse (M15)
 
+    # --- Volatility regime filter ---
+    use_atr_expansion_filter: bool = False  # skip London Breakout / ORB when ATR < recent avg
+                                            # (contracting ATR = ranging market = bad for breakouts)
+    atr_expansion_lookback: int = 20        # number of M5 bars to average ATR over for the check
+
     # --- Universe ---
     pairs: list[str] = field(default_factory=lambda: [
         "EUR_USD", "GBP_USD", "USD_JPY", "EUR_JPY", "GBP_JPY",

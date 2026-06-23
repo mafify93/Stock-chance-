@@ -24,6 +24,7 @@ struct AutoTraderConfig: Codable, Hashable {
     var useSilverBullet: Bool?
     var useOrderBlocks: Bool?
     var dailyLossHaltPct: Double?
+    var useAtrExpansionFilter: Bool?
 }
 
 // MARK: - Auto-Trader Trade Record
@@ -135,6 +136,7 @@ struct BacktestStatsModel: Codable, Identifiable {
     var returnPct: Double
     var maxDrawdownPct: Double
     var endingNav: Double
+    var calmarRatio: Double?
 
     var id: String { pair }
     var winRatePct: Double { winRate }  // backend already returns percent
@@ -155,9 +157,19 @@ struct BacktestTradeModel: Codable, Identifiable {
     var netPips: Double
     var pnlUsd: Double
     var confidence: Double
+    var signalType: String?
 
     var id: String { "\(pair)-\(entryTime)" }
     var isWin: Bool { outcome == "target" }
+
+    var strategyLabel: String {
+        switch signalType {
+        case "london_breakout": return "LDN"
+        case "orb":             return "ORB"
+        case "order_block":     return "OB"
+        default:                return "EMA"
+        }
+    }
 }
 
 struct BacktestResult: Codable {
@@ -165,6 +177,7 @@ struct BacktestResult: Codable {
     var endingNav: Double
     var overall: BacktestStatsModel
     var perPair: [BacktestStatsModel]
+    var perStrategy: [BacktestStatsModel]?
     var tradeCount: Int
     var trades: [BacktestTradeModel]
     var errors: [String]
@@ -173,6 +186,12 @@ struct BacktestResult: Codable {
     var returnPct: Double {
         guard startingNav > 0 else { return 0 }
         return (endingNav - startingNav) / startingNav * 100
+    }
+
+    var calmarRatio: Double {
+        let dd = overall.maxDrawdownPct
+        guard dd > 0 else { return 0 }
+        return (overall.returnPct / dd)
     }
 }
 
@@ -211,4 +230,5 @@ struct AutoTraderConfigPatch: Codable {
     var useSilverBullet: Bool?
     var useOrderBlocks: Bool?
     var dailyLossHaltPct: Double?
+    var useAtrExpansionFilter: Bool?
 }

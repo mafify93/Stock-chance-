@@ -23,6 +23,7 @@ final class AutoTraderViewModel: ObservableObject {
     @Published var useSilverBullet: Bool = true
     @Published var useOrderBlocks: Bool = true
     @Published var dailyLossHaltPct: Double = 3.0  // percent; 0 = disabled
+    @Published var useAtrExpansionFilter: Bool = false
 
     // AI Learner stats
     @Published var learnerStats: LearnerStats?
@@ -83,6 +84,7 @@ final class AutoTraderViewModel: ObservableObject {
         useSilverBullet = config.useSilverBullet ?? true
         useOrderBlocks = config.useOrderBlocks ?? true
         dailyLossHaltPct = (config.dailyLossHaltPct ?? 0.03) * 100
+        useAtrExpansionFilter = config.useAtrExpansionFilter ?? false
     }
 
     // MARK: - Learner stats
@@ -155,7 +157,8 @@ final class AutoTraderViewModel: ObservableObject {
             useOrb: useOrb,
             useSilverBullet: useSilverBullet,
             useOrderBlocks: useOrderBlocks,
-            dailyLossHaltPct: dailyLossHaltPct / 100
+            dailyLossHaltPct: dailyLossHaltPct / 100,
+            useAtrExpansionFilter: useAtrExpansionFilter
         )
         do {
             try await client.updateAutoTraderConfig(patch)
