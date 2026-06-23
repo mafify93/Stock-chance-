@@ -100,14 +100,20 @@ def _try_ict_signals(
     window_m5: pd.DataFrame,
     bar_dt: datetime,
     cfg: AutoTraderConfig,
+    m15_full: "pd.DataFrame | None" = None,
 ):
     """Attempt ICT strategies in priority order; return first hit or None.
 
     Silver Bullet and ICT Sweep are live-only (require M1 bars not available
     in the M5 backtest dataset).
+
+    m15_full is the pre-resampled M15 frame for the whole pair history. When
+    supplied, we slice it rather than resampling on every bar (avoids O(n²) cost).
     """
+    hour = bar_dt.hour
+
     # 1. London Open Breakout (07:00–10:00 UTC, M5 compatible)
-    if cfg.use_london_breakout and pair in cfg.london_breakout_pairs:
+    if cfg.use_london_breakout and pair in cfg.london_breakout_pairs and 7 <= hour < 10:
         try:
             sig = london_open_breakout(pair, window_m5, bar_dt)
             if sig and sig.action != "DAY_HOLD" and sig.stop_pips:
@@ -116,7 +122,7 @@ def _try_ict_signals(
             pass
 
     # 2. Opening Range Breakout (13:15–17:00 UTC, M5 compatible)
-    if cfg.use_orb:
+    if cfg.use_orb and 13 <= hour < 17:
         try:
             sig = opening_range_breakout(pair, window_m5, bar_dt)
             if sig and sig.action != "DAY_HOLD" and sig.stop_pips:
@@ -124,10 +130,13 @@ def _try_ict_signals(
         except Exception:
             pass
 
-    # 3. Order Block Reversal (07:00–20:00 UTC, M15 resampled from M5)
-    if cfg.use_order_blocks:
+    # 3. Order Block Reversal (07:00–20:00 UTC, M15 pre-resampled)
+    if cfg.use_order_blocks and 7 <= hour < 20:
         try:
-            m15 = _resample_to_m15(window_m5)
+            if m15_full is not None:
+                m15 = m15_full[m15_full.index <= bar_dt]
+            else:
+                m15 = _resample_to_m15(window_m5)
             if len(m15) >= 5:
                 sig = order_block_reversal(pair, m15, bar_dt)
                 if sig and sig.action != "DAY_HOLD" and sig.stop_pips:
@@ -161,6 +170,15 @@ def simulate_pair(
 
     trades_today = 0
     current_day = None
+
+    # Pre-resample M15 once for the whole pair so _try_ict_signals can slice
+    # it by timestamp instead of resampling on every bar (avoids O(n²) cost).
+    m15_precomputed: pd.DataFrame | None = None
+    if cfg.use_order_blocks:
+        try:
+            m15_precomputed = _resample_to_m15(df)
+        except Exception:
+            pass
 
     # Pre-compute one H1 swing score per H1 bar (no look-ahead): each is the
     # score from the closed H1 bars up to and including that timestamp.
@@ -210,7 +228,7 @@ def simulate_pair(
         bar_dt = bar_time.to_pydatetime()
 
         # Try ICT strategies first (London breakout, ORB, Order Block)
-        sig = _try_ict_signals(pair, window, bar_dt, cfg)
+        sig = _try_ict_signals(pair, window, bar_dt, cfg, m15_full=m15_precomputed)
 
         # Fallback: intraday VWAP/RSI/EMA signal
         if sig is None:
