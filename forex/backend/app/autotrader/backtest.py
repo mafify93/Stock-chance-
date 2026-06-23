@@ -36,6 +36,9 @@ from ..sessions import get_market_session
 from ..signals import analyze as swing_analyze
 from .config import AutoTraderConfig
 from .engine import h1_blocks_trade
+from .london_breakout import london_open_breakout
+from .opening_range import opening_range_breakout
+from .order_blocks import order_block_reversal
 from .risk import calculate_units
 
 
@@ -79,6 +82,60 @@ class BacktestStats:
 
 def _mid_pips(pair: str, delta: float) -> float:
     return pip_module.to_pips(pair, delta)
+
+
+def _resample_to_m15(df_m5: pd.DataFrame) -> pd.DataFrame:
+    """Downsample M5 OHLCV bars to M15 for order-block analysis."""
+    return (
+        df_m5.resample("15min", label="left", closed="left")
+        .agg(Open=("Open", "first"), High=("High", "max"),
+             Low=("Low", "min"), Close=("Close", "last"),
+             Volume=("Volume", "sum"))
+        .dropna(subset=["Open"])
+    )
+
+
+def _try_ict_signals(
+    pair: str,
+    window_m5: pd.DataFrame,
+    bar_dt: datetime,
+    cfg: AutoTraderConfig,
+):
+    """Attempt ICT strategies in priority order; return first hit or None.
+
+    Silver Bullet and ICT Sweep are live-only (require M1 bars not available
+    in the M5 backtest dataset).
+    """
+    # 1. London Open Breakout (07:00–10:00 UTC, M5 compatible)
+    if cfg.use_london_breakout and pair in cfg.london_breakout_pairs:
+        try:
+            sig = london_open_breakout(pair, window_m5, bar_dt)
+            if sig and sig.action != "DAY_HOLD" and sig.stop_pips:
+                return sig
+        except Exception:
+            pass
+
+    # 2. Opening Range Breakout (13:15–17:00 UTC, M5 compatible)
+    if cfg.use_orb:
+        try:
+            sig = opening_range_breakout(pair, window_m5, bar_dt)
+            if sig and sig.action != "DAY_HOLD" and sig.stop_pips:
+                return sig
+        except Exception:
+            pass
+
+    # 3. Order Block Reversal (07:00–20:00 UTC, M15 resampled from M5)
+    if cfg.use_order_blocks:
+        try:
+            m15 = _resample_to_m15(window_m5)
+            if len(m15) >= 5:
+                sig = order_block_reversal(pair, m15, bar_dt)
+                if sig and sig.action != "DAY_HOLD" and sig.stop_pips:
+                    return sig
+        except Exception:
+            pass
+
+    return None
 
 
 def simulate_pair(
@@ -150,11 +207,18 @@ def simulate_pair(
 
         # ── Signal on closed bars [.. i] ──────────────────────────────────────
         window = df.iloc[: i + 1]
-        try:
-            sig = compute_day_signal(pair, window)
-        except Exception:
-            i += 1
-            continue
+        bar_dt = bar_time.to_pydatetime()
+
+        # Try ICT strategies first (London breakout, ORB, Order Block)
+        sig = _try_ict_signals(pair, window, bar_dt, cfg)
+
+        # Fallback: intraday VWAP/RSI/EMA signal
+        if sig is None:
+            try:
+                sig = compute_day_signal(pair, window)
+            except Exception:
+                i += 1
+                continue
 
         if sig.action == "DAY_HOLD" or sig.confidence < cfg.min_confidence * 100:
             i += 1
