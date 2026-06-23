@@ -358,6 +358,16 @@ struct AutoTraderView: View {
                 .font(.subheadline)
                 .foregroundColor(.white)
 
+            Toggle("EMA Session Window (07–09:30, 13:30–15:30 UTC)", isOn: $vm.emaSessionWindow)
+                .tint(Theme.accent)
+                .font(.subheadline)
+                .foregroundColor(.white)
+
+            Toggle("EMA Fallback Signal", isOn: $vm.useEmaFallback)
+                .tint(Theme.accent)
+                .font(.subheadline)
+                .foregroundColor(.white)
+
             if vm.status?.running == true {
                 Text("Changes apply to the running bot immediately.")
                     .font(.caption2)
@@ -381,6 +391,8 @@ struct AutoTraderView: View {
         .onChange(of: vm.useOrderBlocks) { _ in applyConfig() }
         .onChange(of: vm.useAtrExpansionFilter) { _ in applyConfig() }
         .onChange(of: vm.useNyOpenMomentumFilter) { _ in applyConfig() }
+        .onChange(of: vm.emaSessionWindow) { _ in applyConfig() }
+        .onChange(of: vm.useEmaFallback) { _ in applyConfig() }
     }
 
     private func applyConfig() {

@@ -79,6 +79,13 @@ class AutoTraderConfig:
     block_ema_ny_open: bool = False         # skip EMA fallback during 13:00–17:00 UTC (NY open)
                                             # tested False — gate removes good trades alongside bad ones
 
+    # --- EMA fallback kill-switch ---
+    # When False, the EMA/VWAP/RSI intraday signal is completely disabled and
+    # only ICT strategies (London Breakout, ICT Sweep, Silver Bullet) run.
+    # Use this in the backtest to isolate London Breakout's standalone edge —
+    # if Calmar improves without EMA, the EMA is the leak.
+    use_ema_fallback: bool = True
+
     # --- EMA session time window ---
     # The session_filter gates on "London or NY open" — a 10-hour window that
     # includes ~5 hours of London lunch and drift (09:30–13:30 UTC) where EMA

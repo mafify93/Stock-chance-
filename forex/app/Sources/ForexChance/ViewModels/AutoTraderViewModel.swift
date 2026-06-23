@@ -25,6 +25,8 @@ final class AutoTraderViewModel: ObservableObject {
     @Published var dailyLossHaltPct: Double = 3.0  // percent; 0 = disabled
     @Published var useAtrExpansionFilter: Bool = false
     @Published var useNyOpenMomentumFilter: Bool = true
+    @Published var emaSessionWindow: Bool = true
+    @Published var useEmaFallback: Bool = true
 
     // AI Learner stats
     @Published var learnerStats: LearnerStats?
@@ -87,6 +89,8 @@ final class AutoTraderViewModel: ObservableObject {
         dailyLossHaltPct = (config.dailyLossHaltPct ?? 0.03) * 100
         useAtrExpansionFilter = config.useAtrExpansionFilter ?? false
         useNyOpenMomentumFilter = config.useNyOpenMomentumFilter ?? true
+        emaSessionWindow = config.emaSessionWindow ?? true
+        useEmaFallback = config.useEmaFallback ?? true
     }
 
     // MARK: - Learner stats
@@ -129,7 +133,9 @@ final class AutoTraderViewModel: ObservableObject {
             minStopPips: nil,
             maxStopPips: nil,
             useAtrExpansionFilter: useAtrExpansionFilter,
-            useNyOpenMomentumFilter: useNyOpenMomentumFilter
+            useNyOpenMomentumFilter: useNyOpenMomentumFilter,
+            emaSessionWindow: emaSessionWindow,
+            useEmaFallback: useEmaFallback
         )
         do {
             backtestResult = try await client.backtest(request)
@@ -163,7 +169,9 @@ final class AutoTraderViewModel: ObservableObject {
             useOrderBlocks: useOrderBlocks,
             dailyLossHaltPct: dailyLossHaltPct / 100,
             useAtrExpansionFilter: useAtrExpansionFilter,
-            useNyOpenMomentumFilter: useNyOpenMomentumFilter
+            useNyOpenMomentumFilter: useNyOpenMomentumFilter,
+            emaSessionWindow: emaSessionWindow,
+            useEmaFallback: useEmaFallback
         )
         do {
             try await client.updateAutoTraderConfig(patch)

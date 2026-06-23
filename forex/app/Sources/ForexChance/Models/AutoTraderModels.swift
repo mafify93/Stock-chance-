@@ -26,6 +26,8 @@ struct AutoTraderConfig: Codable, Hashable {
     var dailyLossHaltPct: Double?
     var useAtrExpansionFilter: Bool?
     var useNyOpenMomentumFilter: Bool?
+    var emaSessionWindow: Bool?
+    var useEmaFallback: Bool?
 }
 
 // MARK: - Auto-Trader Trade Record
@@ -120,6 +122,8 @@ struct BacktestRequest: Codable {
     var maxStopPips: Double?
     var useAtrExpansionFilter: Bool?
     var useNyOpenMomentumFilter: Bool?
+    var emaSessionWindow: Bool?
+    var useEmaFallback: Bool?
 }
 
 struct BacktestStatsModel: Codable, Identifiable {
@@ -235,4 +239,6 @@ struct AutoTraderConfigPatch: Codable {
     var dailyLossHaltPct: Double?
     var useAtrExpansionFilter: Bool?
     var useNyOpenMomentumFilter: Bool?
+    var emaSessionWindow: Bool?
+    var useEmaFallback: Bool?
 }

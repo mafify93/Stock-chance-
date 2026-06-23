@@ -281,7 +281,11 @@ def simulate_pair(
             if ict_result is not None:
                 signal_type = strategy_name
 
-        # Fallback: intraday VWAP/RSI/EMA signal
+        # Fallback: intraday VWAP/RSI/EMA signal (skip when kill-switch is off)
+        if ict_result is None and not cfg.use_ema_fallback:
+            i += 1
+            continue
+
         if ict_result is None:
             # EMA session window: only trade during London open (07:00–09:30) and
             # NY open (13:30–15:30) UTC. The session_filter admits a 10-hour window

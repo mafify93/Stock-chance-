@@ -88,6 +88,7 @@ class ConfigPatch(BaseModel):
     block_ema_ny_open: bool | None = None
     use_ny_open_momentum_filter: bool | None = None
     ema_session_window: bool | None = None
+    use_ema_fallback: bool | None = None
 
 
 class BacktestRequest(BaseModel):
@@ -111,6 +112,7 @@ class BacktestRequest(BaseModel):
     use_atr_expansion_filter: bool | None = None
     use_ny_open_momentum_filter: bool | None = None
     ema_session_window: bool | None = None
+    use_ema_fallback: bool | None = None
 
 
 class TradeOut(BaseModel):
@@ -164,6 +166,7 @@ class ConfigOut(BaseModel):
     block_ema_ny_open: bool
     use_ny_open_momentum_filter: bool
     ema_session_window: bool
+    use_ema_fallback: bool
 
 
 class StatusOut(BaseModel):
@@ -284,7 +287,7 @@ async def backtest(req: BacktestRequest):
         "h1_trend_filter", "breakeven_stop",
         "max_trades_per_day", "min_stop_pips", "max_stop_pips",
         "use_atr_expansion_filter", "use_ny_open_momentum_filter",
-        "ema_session_window",
+        "ema_session_window", "use_ema_fallback",
     ):
         val = getattr(req, field, None)
         if val is not None:

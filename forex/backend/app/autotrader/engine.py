@@ -756,6 +756,9 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
             log.debug(f"AutoTrader {pair}: Order Block error (falling back): {exc}")
 
     if day_sig is None:
+        if not cfg.use_ema_fallback:
+            return  # EMA fallback disabled — ICT strategies only
+
         # EMA session window: restrict fallback to genuine momentum windows only.
         if cfg.ema_session_window:
             ema_min = now.hour * 60 + now.minute
