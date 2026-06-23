@@ -49,6 +49,9 @@ _SIGNAL_IDS: dict[str, float] = {
     "ema_vwap_rsi": 0.0,
     "london_breakout": 1.0,
     "ict_sweep": 2.0,
+    "orb": 3.0,
+    "silver_bullet": 4.0,
+    "order_block": 5.0,
 }
 
 

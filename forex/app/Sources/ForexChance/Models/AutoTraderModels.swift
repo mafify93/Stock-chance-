@@ -21,6 +21,9 @@ struct AutoTraderConfig: Codable, Hashable {
     var useAiLearner: Bool?
     var aiMinWinProb: Double?
     var useIctSweep: Bool?
+    var useOrb: Bool?
+    var useSilverBullet: Bool?
+    var useOrderBlocks: Bool?
 }
 
 // MARK: - Auto-Trader Trade Record
@@ -206,4 +209,7 @@ struct AutoTraderConfigPatch: Codable {
     var useAiLearner: Bool?
     var aiMinWinProb: Double?
     var useIctSweep: Bool?
+    var useOrb: Bool?
+    var useSilverBullet: Bool?
+    var useOrderBlocks: Bool?
 }

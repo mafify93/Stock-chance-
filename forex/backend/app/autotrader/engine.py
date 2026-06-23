@@ -25,6 +25,8 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 
+import pandas as pd
+
 from .. import pips as pip_module
 from ..indicators import average_true_range
 from ..intraday import compute_day_signal
@@ -35,6 +37,9 @@ from .calendar import refresh_blackout_windows
 from .ict_sweep import ict_session_sweep
 from .learner import TradeFeatures, trade_learner
 from .london_breakout import london_open_breakout
+from .opening_range import opening_range_breakout
+from .order_blocks import order_block_reversal
+from .silver_bullet import silver_bullet
 from .risk import calculate_units
 from .state import TradeRecord, bot_state
 from . import telegram
@@ -664,13 +669,24 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
         except Exception as exc:
             log.debug(f"AutoTrader {pair}: London Breakout error (falling back): {exc}")
 
-    # ICT Session Sweep: NY 9am setup (13:00–15:00 UTC)
-    # Only runs when no London Breakout signal was found (the time windows never overlap).
-    if day_sig is None and cfg.use_ict_sweep:
+    # Fetch shared M1 bars once for all M1-based ICT strategies (750 bars ≈ 12.5 h).
+    # Reused by ICT Sweep, ORB, and Silver Bullet so we avoid triple API calls.
+    df_m1: pd.DataFrame | None = None
+    _m1_needed = (
+        (cfg.use_ict_sweep or cfg.use_orb or cfg.use_silver_bullet)
+        and day_sig is None
+    )
+    if _m1_needed:
         try:
             df_m1 = await asyncio.to_thread(
                 oanda.get_candles, pair, state.token, "M1", 750, state.base_url
             )
+        except Exception as exc:
+            log.debug(f"AutoTrader {pair}: M1 fetch error: {exc}")
+
+    # ICT Session Sweep: NY 9am setup (13:00–15:00 UTC)
+    if day_sig is None and cfg.use_ict_sweep and df_m1 is not None:
+        try:
             ict_sig = ict_session_sweep(pair, df_m1, now)
             if ict_sig is not None:
                 day_sig = ict_sig
@@ -681,6 +697,51 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
                 )
         except Exception as exc:
             log.debug(f"AutoTrader {pair}: ICT Sweep error (falling back): {exc}")
+
+    # Opening Range Breakout: NY first-15-min range (13:15–17:00 UTC)
+    if day_sig is None and cfg.use_orb and df_m1 is not None:
+        try:
+            orb_sig = opening_range_breakout(pair, df_m1, now)
+            if orb_sig is not None:
+                day_sig = orb_sig
+                signal_type = "orb"
+                log.debug(
+                    f"AutoTrader {pair}: ORB Breakout "
+                    f"({day_sig.action}, conf={day_sig.confidence:.0f}%)"
+                )
+        except Exception as exc:
+            log.debug(f"AutoTrader {pair}: ORB error (falling back): {exc}")
+
+    # ICT Silver Bullet: FVG entries at 07:00, 14:00, 18:00 UTC windows
+    if day_sig is None and cfg.use_silver_bullet and df_m1 is not None:
+        try:
+            sb_sig = silver_bullet(pair, df_m1, now)
+            if sb_sig is not None:
+                day_sig = sb_sig
+                signal_type = "silver_bullet"
+                log.debug(
+                    f"AutoTrader {pair}: Silver Bullet FVG "
+                    f"({day_sig.action}, conf={day_sig.confidence:.0f}%)"
+                )
+        except Exception as exc:
+            log.debug(f"AutoTrader {pair}: Silver Bullet error (falling back): {exc}")
+
+    # Order Block Reversal: M15 structural OB zones
+    if day_sig is None and cfg.use_order_blocks:
+        try:
+            df_m15 = await asyncio.to_thread(
+                oanda.get_candles, pair, state.token, "M15", 60, state.base_url
+            )
+            ob_sig = order_block_reversal(pair, df_m15, now)
+            if ob_sig is not None:
+                day_sig = ob_sig
+                signal_type = "order_block"
+                log.debug(
+                    f"AutoTrader {pair}: Order Block Reversal "
+                    f"({day_sig.action}, conf={day_sig.confidence:.0f}%)"
+                )
+        except Exception as exc:
+            log.debug(f"AutoTrader {pair}: Order Block error (falling back): {exc}")
 
     if day_sig is None:
         # Fall back to EMA/VWAP/RSI intraday signal

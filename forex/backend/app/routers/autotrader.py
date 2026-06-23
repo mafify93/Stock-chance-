@@ -80,6 +80,9 @@ class ConfigPatch(BaseModel):
     use_ai_learner: bool | None = None
     ai_min_win_prob: float | None = None
     use_ict_sweep: bool | None = None
+    use_orb: bool | None = None
+    use_silver_bullet: bool | None = None
+    use_order_blocks: bool | None = None
 
 
 class BacktestRequest(BaseModel):
@@ -143,6 +146,9 @@ class ConfigOut(BaseModel):
     use_ai_learner: bool
     ai_min_win_prob: float
     use_ict_sweep: bool
+    use_orb: bool
+    use_silver_bullet: bool
+    use_order_blocks: bool
 
 
 class StatusOut(BaseModel):

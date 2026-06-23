@@ -20,6 +20,9 @@ final class AutoTraderViewModel: ObservableObject {
     @Published var londonBreakout: Bool = true
     @Published var useAiLearner: Bool = true
     @Published var useIctSweep: Bool = true
+    @Published var useOrb: Bool = true
+    @Published var useSilverBullet: Bool = true
+    @Published var useOrderBlocks: Bool = true
 
     // AI Learner stats
     @Published var learnerStats: LearnerStats?
@@ -77,6 +80,9 @@ final class AutoTraderViewModel: ObservableObject {
         londonBreakout = config.useLondonBreakout ?? true
         useAiLearner = config.useAiLearner ?? true
         useIctSweep = config.useIctSweep ?? true
+        useOrb = config.useOrb ?? true
+        useSilverBullet = config.useSilverBullet ?? true
+        useOrderBlocks = config.useOrderBlocks ?? true
     }
 
     // MARK: - Learner stats
@@ -146,7 +152,10 @@ final class AutoTraderViewModel: ObservableObject {
             useLondonBreakout: londonBreakout,
             useAiLearner: useAiLearner,
             aiMinWinProb: nil,
-            useIctSweep: useIctSweep
+            useIctSweep: useIctSweep,
+            useOrb: useOrb,
+            useSilverBullet: useSilverBullet,
+            useOrderBlocks: useOrderBlocks
         )
         do {
             try await client.updateAutoTraderConfig(patch)

@@ -68,6 +68,15 @@ class AutoTraderConfig:
     # --- ICT Session Sweep ---
     use_ict_sweep: bool = True              # NY 9am setup: Asia/London range sweep + FVG reversal
 
+    # --- Opening Range Breakout ---
+    use_orb: bool = True                    # NY open 15-min range breakout (13:15–17:00 UTC)
+
+    # --- ICT Silver Bullet ---
+    use_silver_bullet: bool = True          # FVG entries at 07:00, 14:00, 18:00 UTC windows
+
+    # --- Order Block Reversal ---
+    use_order_blocks: bool = True           # last opposing candle before impulse (M15)
+
     # --- Universe ---
     pairs: list[str] = field(default_factory=lambda: [
         "EUR_USD", "GBP_USD", "USD_JPY", "EUR_JPY", "GBP_JPY",

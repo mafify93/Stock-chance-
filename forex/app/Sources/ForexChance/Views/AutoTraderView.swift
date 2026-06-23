@@ -313,6 +313,21 @@ struct AutoTraderView: View {
                 .font(.subheadline)
                 .foregroundColor(.white)
 
+            Toggle("Opening Range Breakout", isOn: $vm.useOrb)
+                .tint(Theme.accent)
+                .font(.subheadline)
+                .foregroundColor(.white)
+
+            Toggle("Silver Bullet (FVG Windows)", isOn: $vm.useSilverBullet)
+                .tint(Theme.accent)
+                .font(.subheadline)
+                .foregroundColor(.white)
+
+            Toggle("Order Block Reversal (M15)", isOn: $vm.useOrderBlocks)
+                .tint(Theme.accent)
+                .font(.subheadline)
+                .foregroundColor(.white)
+
             if vm.status?.running == true {
                 Text("Changes apply to the running bot immediately.")
                     .font(.caption2)
@@ -331,6 +346,9 @@ struct AutoTraderView: View {
         .onChange(of: vm.londonBreakout) { _ in applyConfig() }
         .onChange(of: vm.useAiLearner) { _ in applyConfig() }
         .onChange(of: vm.useIctSweep) { _ in applyConfig() }
+        .onChange(of: vm.useOrb) { _ in applyConfig() }
+        .onChange(of: vm.useSilverBullet) { _ in applyConfig() }
+        .onChange(of: vm.useOrderBlocks) { _ in applyConfig() }
     }
 
     private func applyConfig() {
