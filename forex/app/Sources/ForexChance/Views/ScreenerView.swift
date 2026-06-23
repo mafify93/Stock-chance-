@@ -27,9 +27,6 @@ struct ScreenerView: View {
                 }
             }
             .navigationTitle("Screener")
-            .navigationDestination(for: PairInfo.self) { pair in
-                PairDetailView(pair: pair)
-            }
             .refreshable { await viewModel.refresh() }
         }
         .task { await viewModel.refresh() }
@@ -57,7 +54,9 @@ private struct ScreenerBucket: View {
                     .padding(.bottom, 4)
             } else {
                 ForEach(items) { item in
-                    NavigationLink(value: PairInfo.from(code: item.pair)) {
+                    NavigationLink {
+                        PairDetailView(pair: PairInfo.from(code: item.pair))
+                    } label: {
                         ScreenerRow(item: item)
                     }
                     .buttonStyle(.plain)

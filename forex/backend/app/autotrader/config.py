@@ -25,7 +25,7 @@ class AutoTraderConfig:
 
     # --- Position management ---
     max_positions: int = 2          # max concurrent open bot positions
-    max_trades_per_day: int = 5     # daily trade cap
+    max_trades_per_day: int = 50    # daily trade cap
 
     # --- Entry filters ---
     min_confidence: float = 0.65    # minimum intraday signal confidence (0–1 scale)

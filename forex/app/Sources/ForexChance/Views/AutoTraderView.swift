@@ -288,7 +288,7 @@ struct AutoTraderView: View {
             configSlider(label: "Min confidence", value: $vm.minConfidence, range: 35...80, step: 5, format: "%.0f%%")
             configSlider(label: "Max spread (pips)", value: $vm.maxSpreadPips, range: 1...8, step: 0.5, format: "%.1f")
             configStepper(label: "Max positions", value: $vm.maxPositions, range: 1...4)
-            configStepper(label: "Max trades/day", value: $vm.maxTradesPerDay, range: 1...20)
+            configStepper(label: "Max trades/day", value: $vm.maxTradesPerDay, range: 1...50)
 
             Divider().background(Theme.cardBorder)
 
