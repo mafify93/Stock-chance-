@@ -205,6 +205,35 @@ async def _manage_trade(trade, now: datetime) -> None:
                 except Exception as exc:
                     log.warning(f"AutoTrader {trade.pair}: time-decay tighten failed: {exc}")
 
+    # ── Early breakeven: eliminate the "giving back profit" problem ──────────
+    # Move SL to entry + 1 pip as soon as the trade reaches breakeven_r × risk
+    # (default 0.5R = half the stop distance). This means the worst case on any
+    # trade that moved half-way to TP is zero loss, not a full stop-out.
+    # Fires independently of the 1R partial-TP below.
+    if cfg.breakeven_stop and not trade.breakeven_set:
+        be_trigger = risk * cfg.breakeven_r
+        if profit >= be_trigger:
+            buf = pip_module.from_pips(trade.pair, 1.0)
+            be_sl = (trade.entry + buf) if is_long else (trade.entry - buf)
+            should_move = (be_sl > trade.stop) if is_long else (be_sl < trade.stop)
+            if should_move:
+                try:
+                    await asyncio.to_thread(
+                        oanda.update_trade_stop_loss,
+                        state.token, state.account_id, trade.trade_id,
+                        be_sl, trade.pair, state.base_url,
+                    )
+                    with state._lock:
+                        trade.stop = be_sl
+                        trade.breakeven_set = True
+                    log.info(
+                        f"AutoTrader {trade.pair}: breakeven lock at "
+                        f"{be_sl:.5f} ({profit_pips:+.1f}p, "
+                        f"{profit/risk:.1f}R in profit)"
+                    )
+                except Exception as exc:
+                    log.warning(f"AutoTrader {trade.pair}: breakeven move failed: {exc}")
+
     # Past here we only act when the trade is at or beyond 1R profit.
     if profit < risk:
         return

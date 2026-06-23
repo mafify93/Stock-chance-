@@ -16,7 +16,8 @@ class AutoTraderConfig:
     rr_ratio: float = 2.0           # reward-to-risk ratio for take-profit placement
     min_stop_pips: float = 12.0     # clamp stop distance from below
     max_stop_pips: float = 30.0     # clamp stop distance from above
-    breakeven_stop: bool = True     # at 1R profit, slide stop to entry + 1 pip
+    breakeven_stop: bool = True     # slide stop to entry + 1 pip once profit ≥ breakeven_r × risk
+    breakeven_r: float = 0.5        # fraction of 1R at which breakeven fires (0.5 = halfway to TP)
 
     # --- Position management ---
     max_positions: int = 2          # max concurrent open bot positions
