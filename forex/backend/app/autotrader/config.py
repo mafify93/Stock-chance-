@@ -52,6 +52,16 @@ class AutoTraderConfig:
     # --- Scan schedule ---
     scan_interval_minutes: int = 5  # how often the engine scans the pair list
 
+    # --- London Open Breakout ---
+    use_london_breakout: bool = True        # use Asian-range breakout at London open
+    london_breakout_pairs: list[str] = field(default_factory=lambda: [
+        "EUR_USD", "GBP_USD",               # tightest spreads, cleanest breakouts
+    ])
+
+    # --- AI self-learning ---
+    use_ai_learner: bool = True             # adjust confidence using trade outcome history
+    ai_min_win_prob: float = 0.35           # skip entry if learner estimates win prob < 35%
+
     # --- Universe ---
     pairs: list[str] = field(default_factory=lambda: [
         "EUR_USD", "GBP_USD", "USD_JPY", "EUR_JPY", "GBP_JPY",

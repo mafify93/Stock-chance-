@@ -31,6 +31,8 @@ from ..intraday import compute_day_signal
 from ..providers import oanda
 from ..sessions import get_market_session, in_blackout, is_rollover, ny_close_imminent
 from ..signals import analyze as swing_analyze
+from .learner import TradeFeatures, trade_learner
+from .london_breakout import london_open_breakout
 from .risk import calculate_units
 from .state import TradeRecord, bot_state
 
@@ -383,6 +385,14 @@ async def sync_closed_trades() -> None:
                 state.consecutive_losses = 0
             # Scratch trades (BE stop hit) don't reset or increment the streak.
 
+        # Feed outcome to the AI learner so it can improve future entry decisions.
+        if trade.entry_features:
+            try:
+                features = TradeFeatures.from_dict(trade.entry_features)
+                trade_learner.record(features, realized_pl)
+            except Exception as exc:
+                log.debug(f"AutoTrader: learner.record failed for {trade.pair}: {exc}")
+
         outcome = "win" if realized_pl > 0 else ("loss" if realized_pl < 0 else "scratch")
         log.info(
             f"AutoTrader {trade.pair} ({trade.side}): closed — "
@@ -550,21 +560,45 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
         log.debug(f"AutoTrader {pair}: insufficient M5 data ({len(df_m5)} bars)")
         return
 
-    # ── Intraday signal ───────────────────────────────────────────────────────
-    try:
-        day_sig = compute_day_signal(pair, df_m5)
-    except Exception as exc:
-        log.debug(f"AutoTrader {pair}: signal error: {exc}")
-        return
+    # ── Signal selection: London Breakout (preferred) or EMA/VWAP/RSI ─────────
+    # London Breakout has a better-documented edge at London open (07:00–10:00
+    # UTC). Outside that window, or for pairs not in london_breakout_pairs, we
+    # fall back to the existing intraday momentum signal.
+    signal_type = "ema_vwap_rsi"
+    day_sig = None
+
+    if cfg.use_london_breakout and pair in cfg.london_breakout_pairs:
+        try:
+            # Fetch more history (200 bars ≈ 16 h) to capture the full Asian session
+            df_m5_long = await asyncio.to_thread(
+                oanda.get_candles, pair, state.token, "M5", 200, state.base_url
+            )
+            lb_sig = london_open_breakout(pair, df_m5_long, now)
+            if lb_sig is not None:
+                day_sig = lb_sig
+                signal_type = "london_breakout"
+                log.debug(
+                    f"AutoTrader {pair}: using London Open Breakout signal "
+                    f"({day_sig.action}, conf={day_sig.confidence:.0f}%)"
+                )
+        except Exception as exc:
+            log.debug(f"AutoTrader {pair}: London Breakout error (falling back): {exc}")
+
+    if day_sig is None:
+        # Fall back to EMA/VWAP/RSI intraday signal
+        try:
+            day_sig = compute_day_signal(pair, df_m5)
+        except Exception as exc:
+            log.debug(f"AutoTrader {pair}: signal error: {exc}")
+            return
 
     if day_sig.action == "DAY_HOLD":
-        # Clear any pending signal for this pair on a HOLD — direction has changed.
         with state._lock:
             state.pending_signals.pop(pair, None)
         return
 
-    # ── Signal confirmation: require the same direction on two consecutive scans
-    if cfg.signal_confirmation:
+    # ── Signal confirmation (EMA signal only — London Breakout is self-confirming)
+    if cfg.signal_confirmation and signal_type == "ema_vwap_rsi":
         prev = state.pending_signals.get(pair)
         with state._lock:
             state.pending_signals[pair] = day_sig.action
@@ -574,12 +608,10 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
                 f"(previous: {prev or 'none'})"
             )
             return
-        # Same signal confirmed — clear the pending record and proceed to entry.
         with state._lock:
             state.pending_signals.pop(pair, None)
 
-    # ── H1 trend filter (single-variable experiment) ─────────────────────────
-    # Pull H1 candles and skip the entry if it fights the higher-timeframe trend.
+    # ── H1 trend filter ───────────────────────────────────────────────────────
     if cfg.h1_trend_filter:
         try:
             df_h1 = await asyncio.to_thread(
@@ -596,15 +628,8 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
         except Exception as exc:
             log.debug(f"AutoTrader {pair}: H1 filter error (non-fatal): {exc}")
 
-    # confidence is a 0–100 value; min_confidence is stored as a 0–1 fraction.
-    if day_sig.confidence < cfg.min_confidence * 100:
-        log.debug(
-            f"AutoTrader {pair}: confidence {day_sig.confidence:.0f}% < "
-            f"threshold {cfg.min_confidence * 100:.0f}%"
-        )
-        return
-
     # ── Spread check ─────────────────────────────────────────────────────────
+    spread_pips = 0.0
     try:
         pricing = await asyncio.to_thread(
             oanda.get_pricing,
@@ -614,12 +639,62 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
             state.base_url,
         )
         instr = pip_module.normalize(pair)
-        spread = (pricing.get(instr) or {}).get("spread_pips")
-        if spread and spread > cfg.max_spread_pips:
-            log.debug(f"AutoTrader {pair}: spread {spread:.1f} pips > max {cfg.max_spread_pips}")
+        spread_pips = float((pricing.get(instr) or {}).get("spread_pips") or 0.0)
+        if spread_pips > cfg.max_spread_pips:
+            log.debug(f"AutoTrader {pair}: spread {spread_pips:.1f} pips > max {cfg.max_spread_pips}")
             return
     except Exception:
-        pass  # proceed without spread check on network error
+        pass
+
+    # ── ATR (used by learner features and for logging) ────────────────────────
+    atr_pips = 0.0
+    try:
+        atr_series = average_true_range(df_m5, 14)
+        if not atr_series.empty:
+            atr_pips = round(pip_module.to_pips(pair, float(atr_series.iloc[-1])), 1)
+    except Exception:
+        pass
+
+    # ── AI Learner: adjust confidence based on historical win rate ────────────
+    raw_stop_for_features = day_sig.stop_pips or 0.0
+    entry_features = TradeFeatures(
+        pair=pair,
+        side="long" if day_sig.action == "DAY_BUY" else "short",
+        confidence=day_sig.confidence,
+        stop_pips=raw_stop_for_features,
+        spread_pips=spread_pips,
+        atr_pips=atr_pips,
+        hour_utc=now.hour,
+        signal_type=signal_type,
+    )
+
+    if cfg.use_ai_learner:
+        multiplier = trade_learner.confidence_multiplier(entry_features)
+        win_prob = (multiplier - 0.4) / 1.2  # invert the multiplier formula
+        adjusted_confidence = day_sig.confidence * multiplier
+        if win_prob < cfg.ai_min_win_prob:
+            log.debug(
+                f"AutoTrader {pair}: AI learner suppressed entry — "
+                f"estimated win prob {win_prob:.0%} < min {cfg.ai_min_win_prob:.0%}"
+            )
+            return
+        if multiplier != 1.0:
+            log.debug(
+                f"AutoTrader {pair}: AI learner adjusted confidence "
+                f"{day_sig.confidence:.0f}% → {adjusted_confidence:.0f}% "
+                f"(win_prob estimate: {win_prob:.0%})"
+            )
+        day_sig = type(day_sig)(  # shallow copy with adjusted confidence
+            **{**day_sig.__dict__, "confidence": adjusted_confidence}
+        )
+
+    # ── Confidence gate ───────────────────────────────────────────────────────
+    if day_sig.confidence < cfg.min_confidence * 100:
+        log.debug(
+            f"AutoTrader {pair}: confidence {day_sig.confidence:.0f}% < "
+            f"threshold {cfg.min_confidence * 100:.0f}%"
+        )
+        return
 
     # ── Correlation gate ─────────────────────────────────────────────────────
     is_buy = day_sig.action == "DAY_BUY"
@@ -655,10 +730,10 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
     order_units = units if is_buy else -units
 
     log.info(
-        f"AutoTrader: {day_sig.action} {pair} "
+        f"AutoTrader: {day_sig.action} {pair} [{signal_type}] "
         f"{order_units:+,} units @ ~{entry:.5f}  "
         f"SL={stop_price:.5f}  TP={target_price:.5f}  "
-        f"stop={stop_pips:.1f}pips  conf={day_sig.confidence:.0%}"
+        f"stop={stop_pips:.1f}pips  conf={day_sig.confidence:.0f}%"
     )
 
     # ── Place order ───────────────────────────────────────────────────────────
@@ -696,6 +771,7 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
         opened_at=now.isoformat(),
         trade_id=trade_id,
         init_risk=abs(entry - stop_price),
+        entry_features=entry_features.to_dict(),  # stored for learner feedback on close
     )
 
     with state._lock:

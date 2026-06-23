@@ -31,6 +31,8 @@ class TradeRecord:
     partial_closed: bool = False    # True once 50% has been taken off at 1R profit
     init_risk: float = 0.0          # |entry − original stop|; anchors the "R" used for
                                     # profit targets even after the stop is moved
+    entry_features: dict = field(default_factory=dict)  # TradeFeatures snapshot at entry,
+                                    # used by TradeLearner to record outcome on close
 
 
 @dataclass

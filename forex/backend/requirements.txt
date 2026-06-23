@@ -8,3 +8,4 @@ python-dotenv==1.0.1
 apscheduler==3.11.0
 cryptography==43.0.3
 tzdata==2025.2
+scikit-learn==1.6.1
