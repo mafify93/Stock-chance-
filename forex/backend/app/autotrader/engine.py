@@ -205,6 +205,45 @@ async def _manage_trade(trade, now: datetime) -> None:
                 except Exception as exc:
                     log.warning(f"AutoTrader {trade.pair}: time-decay tighten failed: {exc}")
 
+    # ── High-water mark tracking ─────────────────────────────────────────────
+    # Always update the peak profit so we know how far in our favour the trade got.
+    current_r = profit / risk if risk > 0 else 0.0
+    if current_r > trade.peak_profit_r:
+        with state._lock:
+            trade.peak_profit_r = current_r
+
+    # ── HWM close: sell the moment we fall back to entry after being in profit ─
+    # If the trade reached hwm_r × risk in profit (default 0.2R = 20% of stop)
+    # and is now back at or below entry, close it immediately rather than letting
+    # it ride to the original SL. This catches the scenario: "was making money,
+    # market reversed, now about to go negative — get out now."
+    # Only fires below the 0.5R breakeven level; above that OANDA's own moved
+    # stop handles it automatically.
+    if (
+        cfg.hwm_close
+        and not trade.breakeven_set      # OANDA stop not yet at entry
+        and trade.peak_profit_r >= cfg.hwm_r   # was meaningfully in profit
+        and profit <= 0                  # now back at or below entry
+    ):
+        try:
+            await asyncio.to_thread(
+                oanda.close_trade,
+                state.token, state.account_id, trade.trade_id, state.base_url,
+            )
+            with state._lock:
+                trade.status = "closed"
+                trade.closed_at = now.isoformat()
+                trade.realized_pl = 0.0
+            log.info(
+                f"AutoTrader {trade.pair}: HWM close — peaked at "
+                f"+{trade.peak_profit_r:.2f}R ({profit_pips:+.1f}p), "
+                f"fell back to entry; closed to protect profit"
+            )
+            telegram.notify_trade_close(trade.pair, trade.side, 0.0)
+        except Exception as exc:
+            log.warning(f"AutoTrader {trade.pair}: HWM close failed: {exc}")
+        return
+
     # ── Early breakeven: eliminate the "giving back profit" problem ──────────
     # Move SL to entry + 1 pip as soon as the trade reaches breakeven_r × risk
     # (default 0.5R = half the stop distance). This means the worst case on any
