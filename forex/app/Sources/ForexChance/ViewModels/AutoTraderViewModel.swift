@@ -125,7 +125,8 @@ final class AutoTraderViewModel: ObservableObject {
             sessionFilter: sessionFilter,
             maxTradesPerDay: maxTradesPerDay,
             minStopPips: nil,
-            maxStopPips: nil
+            maxStopPips: nil,
+            useAtrExpansionFilter: useAtrExpansionFilter
         )
         do {
             backtestResult = try await client.backtest(request)

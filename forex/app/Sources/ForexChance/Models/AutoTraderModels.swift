@@ -117,6 +117,7 @@ struct BacktestRequest: Codable {
     var maxTradesPerDay: Int?
     var minStopPips: Double?
     var maxStopPips: Double?
+    var useAtrExpansionFilter: Bool?
 }
 
 struct BacktestStatsModel: Codable, Identifiable {
