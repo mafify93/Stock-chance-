@@ -236,6 +236,20 @@ final class AutoTraderViewModel: ObservableObject {
         }
     }
 
+    func resetDay() async {
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            try await client.resetDay()
+            actionMessage = "Day reset — trades today and risk scale cleared. Bot can take new entries."
+            await loadStatus()
+        } catch {
+            if !isCancellation(error) {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
     func emergencyClose() async {
         isLoading = true
         defer { isLoading = false }

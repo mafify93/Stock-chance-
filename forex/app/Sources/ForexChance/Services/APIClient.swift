@@ -251,6 +251,12 @@ struct APIClient {
         return try await send("/api/autotrader/emergency-close", method: "POST", body: Empty())
     }
 
+    func resetDay() async throws {
+        struct Empty: Encodable {}
+        struct Ack2: Decodable {}
+        let _: Ack2 = try await send("/api/autotrader/reset-day", method: "POST", body: Empty())
+    }
+
     func learnerStats() async throws -> LearnerStats {
         try await get("/api/autotrader/learner-stats")
     }

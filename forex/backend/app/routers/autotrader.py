@@ -318,6 +318,26 @@ async def backtest(req: BacktestRequest):
     return result
 
 
+@router.post("/reset-day")
+async def reset_day():
+    """Reset today's trade counter and P&L so the bot can take new entries.
+
+    Use this when the daily cap has been consumed (e.g. due to tight stops getting
+    hit repeatedly) and you want to continue trading the same session without
+    restarting the server.
+    """
+    from datetime import date
+    with bot_state._lock:
+        bot_state.trades_today = 0
+        bot_state.daily_pl = 0.0
+        bot_state.consecutive_losses = 0
+        bot_state.risk_scale = 1.0
+        bot_state.halted = False
+        bot_state.halt_reason = ""
+        bot_state.session_date = date.today()
+    return {"status": "reset", "trades_today": 0, "risk_scale": 1.0}
+
+
 @router.post("/emergency-close")
 async def emergency_close():
     """Stop the bot and close every open position it originated."""

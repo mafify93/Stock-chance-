@@ -5,6 +5,7 @@ struct AutoTraderView: View {
     @State private var showStartSheet = false
     @State private var showEmergencyAlert = false
     @State private var showLiveWarning = false
+    @State private var showResetDayAlert = false
     @State private var selectedEnv: OandaEnvironment = .practice
     @State private var showBacktest = false
 
@@ -59,6 +60,14 @@ struct AutoTraderView: View {
                     Button("OK") { vm.actionMessage = nil }
                 } message: {
                     Text(vm.actionMessage ?? "")
+                }
+                .alert("Reset Trading Day", isPresented: $showResetDayAlert) {
+                    Button("Reset Day", role: .destructive) {
+                        Task { await vm.resetDay() }
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("Clear today's trade count, P&L, and risk scale so the bot can take new entries. Existing open positions are not affected.")
                 }
                 .alert("Emergency Close", isPresented: $showEmergencyAlert) {
                     Button("Close All Positions", role: .destructive) {
@@ -183,6 +192,17 @@ struct AutoTraderView: View {
                         .font(.caption)
                         .foregroundColor(Theme.loss)
                 }
+            }
+
+            if status.tradesToday >= status.config.maxTradesPerDay || status.halted {
+                Button {
+                    showResetDayAlert = true
+                } label: {
+                    Label("Reset Trading Day", systemImage: "arrow.counterclockwise")
+                        .font(.caption.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(SecondaryButtonStyle())
             }
         }
         .cardStyle()
