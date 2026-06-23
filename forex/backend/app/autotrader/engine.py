@@ -250,13 +250,18 @@ async def _manage_trade(trade, now: datetime) -> None:
         return
 
     # ── Early breakeven: eliminate the "giving back profit" problem ──────────
-    # Move SL to entry + 1 pip as soon as the trade reaches breakeven_r × risk
-    # (default 0.5R = half the stop distance). This means the worst case on any
-    # trade that moved half-way to TP is zero loss, not a full stop-out.
-    # Fires independently of the 1R partial-TP below.
+    # Move SL to entry + 1 pip as soon as profit reaches either:
+    #   (a) breakeven_r × risk  (R-based, default 0.25R)
+    #   (b) profit_lock_pips    (pip-based floor, default 5 pips)
+    # Whichever fires first — with a hard 3-pip noise floor so a 1-pip wick
+    # never triggers it. Two separate threshold paths so trades with large stops
+    # don't have to wait for an enormous pip move, and trades with small stops
+    # don't get stopped out on noise.
     if cfg.breakeven_stop and not trade.breakeven_set:
-        be_trigger = risk * cfg.breakeven_r
-        if profit >= be_trigger:
+        be_trigger_r = risk * cfg.breakeven_r
+        be_trigger_pips_price = pip_module.from_pips(trade.pair, cfg.profit_lock_pips)
+        be_trigger = min(be_trigger_r, be_trigger_pips_price)
+        if profit >= be_trigger and profit_pips >= 3.0:
             buf = pip_module.from_pips(trade.pair, 1.0)
             be_sl = (trade.entry + buf) if is_long else (trade.entry - buf)
             should_move = (be_sl > trade.stop) if is_long else (be_sl < trade.stop)

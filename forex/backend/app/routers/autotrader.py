@@ -79,6 +79,7 @@ class ConfigPatch(BaseModel):
     london_breakout_pairs: list[str] | None = None
     use_ai_learner: bool | None = None
     ai_min_win_prob: float | None = None
+    profit_lock_pips: float | None = None
     use_ict_sweep: bool | None = None
     use_orb: bool | None = None
     use_silver_bullet: bool | None = None
@@ -141,6 +142,7 @@ class ConfigOut(BaseModel):
     trail_runner: bool
     trail_atr_period: int
     trail_atr_mult: float
+    profit_lock_pips: float
     use_london_breakout: bool
     london_breakout_pairs: list[str]
     use_ai_learner: bool

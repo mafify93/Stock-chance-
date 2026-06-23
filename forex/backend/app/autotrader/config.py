@@ -17,9 +17,11 @@ class AutoTraderConfig:
     min_stop_pips: float = 12.0     # clamp stop distance from below
     max_stop_pips: float = 30.0     # clamp stop distance from above
     breakeven_stop: bool = True     # slide stop to entry + 1 pip once profit ≥ breakeven_r × risk
-    breakeven_r: float = 0.5        # fraction of 1R at which breakeven fires (0.5 = halfway to TP)
+    breakeven_r: float = 0.25       # fraction of 1R at which breakeven fires (lowered from 0.5)
+    profit_lock_pips: float = 5.0   # also fire breakeven when profit hits this many pips (whichever
+                                    # triggers first: R-based or pip-based)
     hwm_close: bool = True          # close immediately if trade was up ≥ hwm_r and falls back to 0
-    hwm_r: float = 0.2              # minimum R multiple that must be reached before HWM close activates
+    hwm_r: float = 0.0              # 0 = fire HWM on ANY positive peak that retreats to entry
 
     # --- Position management ---
     max_positions: int = 2          # max concurrent open bot positions
