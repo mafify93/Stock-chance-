@@ -310,9 +310,11 @@ def simulate_pair(
 
         # ── Walk forward until stop or target is touched ──────────────────────
         # Breakeven fires when price reaches cfg.breakeven_r × stop distance
-        # (same formula as the live engine), then moves the stop to entry + 1 pip.
-        # Adverse extreme is always checked first (worst case).
-        be_buffer = pip_module.from_pips(pair, 1.0)
+        # (same formula as the live engine), then moves the stop to entry + (spread+1) pips.
+        # The spread+1 buffer ensures breakeven exits always produce a small positive
+        # net result even after the round-trip spread is deducted — otherwise a 1-pip
+        # gross exit at 1 pip spread charges zero net and distorts win rate calculations.
+        be_buffer = pip_module.from_pips(pair, spread_pips + 1.0)
         be_advance = stop_delta * cfg.breakeven_r   # e.g. 0.5 × 15 pips = 7.5 pips
         if is_long:
             be_trigger = entry + be_advance
