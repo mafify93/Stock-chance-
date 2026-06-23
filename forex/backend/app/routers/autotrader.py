@@ -85,6 +85,7 @@ class ConfigPatch(BaseModel):
     daily_loss_halt_pct: float | None = None
     use_atr_expansion_filter: bool | None = None
     atr_expansion_lookback: int | None = None
+    block_ema_ny_open: bool | None = None
 
 
 class BacktestRequest(BaseModel):
@@ -156,6 +157,7 @@ class ConfigOut(BaseModel):
     daily_loss_halt_pct: float
     use_atr_expansion_filter: bool
     atr_expansion_lookback: int
+    block_ema_ny_open: bool
 
 
 class StatusOut(BaseModel):

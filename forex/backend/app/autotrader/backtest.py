@@ -263,6 +263,12 @@ def simulate_pair(
 
         # Fallback: intraday VWAP/RSI/EMA signal
         if ict_result is None:
+            # Skip EMA during the NY opening-range window if the time gate is on.
+            # EMA generates false signals in the choppy 13:00–17:00 UTC open; ORB
+            # used to block this implicitly — now we enforce it explicitly.
+            if cfg.block_ema_ny_open and 13 <= bar_dt.hour < 17:
+                i += 1
+                continue
             try:
                 sig = compute_day_signal(pair, window)
             except Exception:

@@ -753,6 +753,11 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
             log.debug(f"AutoTrader {pair}: Order Block error (falling back): {exc}")
 
     if day_sig is None:
+        # EMA/intraday time gate: skip the NY opening-range window (13:00–17:00 UTC).
+        # EMA generates too many false signals during the choppy NY open; ORB was
+        # previously blocking this window, now we enforce it explicitly.
+        if cfg.block_ema_ny_open and 13 <= now.hour < 17:
+            return
         # Fall back to EMA/VWAP/RSI intraday signal
         try:
             day_sig = compute_day_signal(pair, df_m5)
