@@ -174,6 +174,18 @@ def simulate_pair(
     trades_today = 0
     current_day = None
 
+    # Pre-compute NY session open price (first bar open at/after 13:00 UTC) per day.
+    # Used by the NY momentum filter to gate EMA entries: a buy signal is only valid
+    # if the NY session is actually trending up (current price > NY open), and vice
+    # versa. This replaces ORB's accidental "gate" mechanic with an explicit, meaningful
+    # filter that doesn't require running a net-negative strategy to achieve it.
+    ny_open_by_day: dict = {}
+    for ts_idx, row_data in df.iterrows():
+        h = ts_idx.hour if hasattr(ts_idx, "hour") else ts_idx.to_pydatetime().hour
+        d = ts_idx.date()
+        if h == 13 and d not in ny_open_by_day:
+            ny_open_by_day[d] = float(row_data["Open"])
+
     # Pre-resample M15 once for the whole pair so _try_ict_signals can slice
     # it by timestamp instead of resampling on every bar (avoids O(n²) cost).
     m15_precomputed: pd.DataFrame | None = None
@@ -263,9 +275,7 @@ def simulate_pair(
 
         # Fallback: intraday VWAP/RSI/EMA signal
         if ict_result is None:
-            # Skip EMA during the NY opening-range window if the time gate is on.
-            # EMA generates false signals in the choppy 13:00–17:00 UTC open; ORB
-            # used to block this implicitly — now we enforce it explicitly.
+            # Hard time gate (off by default — too broad, removes good trades).
             if cfg.block_ema_ny_open and 13 <= bar_dt.hour < 17:
                 i += 1
                 continue
@@ -274,6 +284,37 @@ def simulate_pair(
             except Exception:
                 i += 1
                 continue
+
+            # ATR expansion filter extended to EMA during NY open (13:00–16:00 UTC).
+            # When ATR is contracting at NY open the market is ranging; EMA crossovers
+            # in a range are noise. The same ATR guard already protects breakout
+            # strategies — now it protects EMA during the same choppy window.
+            if (cfg.use_atr_expansion_filter
+                    and atr_series is not None
+                    and 13 <= bar_dt.hour < 16):
+                atr_val = atr_series.iloc[i]
+                lb_start = max(0, i - cfg.atr_expansion_lookback)
+                atr_mean = atr_series.iloc[lb_start:i].mean()
+                if (not pd.isna(atr_val) and not pd.isna(atr_mean)
+                        and atr_mean > 0 and atr_val < atr_mean * 0.8):
+                    i += 1
+                    continue  # ranging NY open — skip EMA
+
+            # NY open momentum alignment (13:00–16:00 UTC).
+            # EMA uses a London-anchored VWAP that carries the London session's
+            # directional bias into NY open. This can generate buy signals right as
+            # NY participants take profit and reverse. The filter gates EMA entries
+            # to only fire when price confirms the NY session's actual direction.
+            if cfg.use_ny_open_momentum_filter and 13 <= bar_dt.hour < 16:
+                ny_ref = ny_open_by_day.get(bar_dt.date())
+                if ny_ref is not None:
+                    cur = float(df["Close"].iloc[i])
+                    if sig.action == "DAY_BUY" and cur <= ny_ref:
+                        i += 1
+                        continue  # NY session bearish — skip EMA buy
+                    if sig.action == "DAY_SELL" and cur >= ny_ref:
+                        i += 1
+                        continue  # NY session bullish — skip EMA sell
         else:
             sig, _ = ict_result
 

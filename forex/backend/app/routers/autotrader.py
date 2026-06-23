@@ -86,6 +86,7 @@ class ConfigPatch(BaseModel):
     use_atr_expansion_filter: bool | None = None
     atr_expansion_lookback: int | None = None
     block_ema_ny_open: bool | None = None
+    use_ny_open_momentum_filter: bool | None = None
 
 
 class BacktestRequest(BaseModel):
@@ -107,6 +108,7 @@ class BacktestRequest(BaseModel):
     min_stop_pips: float | None = None
     max_stop_pips: float | None = None
     use_atr_expansion_filter: bool | None = None
+    use_ny_open_momentum_filter: bool | None = None
 
 
 class TradeOut(BaseModel):
@@ -158,6 +160,7 @@ class ConfigOut(BaseModel):
     use_atr_expansion_filter: bool
     atr_expansion_lookback: int
     block_ema_ny_open: bool
+    use_ny_open_momentum_filter: bool
 
 
 class StatusOut(BaseModel):
@@ -277,7 +280,7 @@ async def backtest(req: BacktestRequest):
         "risk_pct", "rr_ratio", "min_confidence", "session_filter",
         "h1_trend_filter", "breakeven_stop",
         "max_trades_per_day", "min_stop_pips", "max_stop_pips",
-        "use_atr_expansion_filter",
+        "use_atr_expansion_filter", "use_ny_open_momentum_filter",
     ):
         val = getattr(req, field, None)
         if val is not None:

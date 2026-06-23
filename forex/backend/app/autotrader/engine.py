@@ -753,9 +753,7 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
             log.debug(f"AutoTrader {pair}: Order Block error (falling back): {exc}")
 
     if day_sig is None:
-        # EMA/intraday time gate: skip the NY opening-range window (13:00–17:00 UTC).
-        # EMA generates too many false signals during the choppy NY open; ORB was
-        # previously blocking this window, now we enforce it explicitly.
+        # Hard time gate (off by default — too broad, removes good trades).
         if cfg.block_ema_ny_open and 13 <= now.hour < 17:
             return
         # Fall back to EMA/VWAP/RSI intraday signal
@@ -764,6 +762,45 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
         except Exception as exc:
             log.debug(f"AutoTrader {pair}: signal error: {exc}")
             return
+
+        # ATR expansion filter extended to EMA during NY open (13:00–16:00 UTC).
+        if cfg.use_atr_expansion_filter and 13 <= now.hour < 16:
+            try:
+                atr_series_live = average_true_range(df_m5, 14)
+                if len(atr_series_live) > cfg.atr_expansion_lookback:
+                    atr_val = float(atr_series_live.iloc[-1])
+                    atr_mean = float(atr_series_live.iloc[-cfg.atr_expansion_lookback - 1:-1].mean())
+                    if atr_mean > 0 and atr_val < atr_mean * 0.8:
+                        log.debug(f"AutoTrader {pair}: EMA suppressed — ATR contracting at NY open "
+                                  f"({atr_val:.6f} < 80% of {atr_mean:.6f})")
+                        return
+            except Exception as exc:
+                log.debug(f"AutoTrader {pair}: ATR NY-open check failed (non-fatal): {exc}")
+
+        # NY open momentum alignment (13:00–16:00 UTC).
+        # EMA uses a London-anchored VWAP that carries the London session's directional
+        # bias into NY open. Gate EMA entries to only fire when price confirms the NY
+        # session's actual direction — i.e. price vs. the first 13:00 UTC bar's open.
+        if cfg.use_ny_open_momentum_filter and 13 <= now.hour < 16:
+            try:
+                today_ny_start = now.replace(hour=13, minute=0, second=0, microsecond=0)
+                idx = df_m5.index
+                if idx.tzinfo is None and today_ny_start.tzinfo is not None:
+                    today_ny_start = today_ny_start.replace(tzinfo=None)
+                ny_bars = df_m5[df_m5.index >= pd.Timestamp(today_ny_start)]
+                if len(ny_bars) > 0:
+                    ny_open_ref = float(ny_bars["Open"].iloc[0])
+                    cur = float(df_m5["Close"].iloc[-1])
+                    if day_sig.action == "DAY_BUY" and cur <= ny_open_ref:
+                        log.debug(f"AutoTrader {pair}: EMA BUY suppressed — NY session bearish "
+                                  f"({cur:.5f} ≤ NY open {ny_open_ref:.5f})")
+                        return
+                    if day_sig.action == "DAY_SELL" and cur >= ny_open_ref:
+                        log.debug(f"AutoTrader {pair}: EMA SELL suppressed — NY session bullish "
+                                  f"({cur:.5f} ≥ NY open {ny_open_ref:.5f})")
+                        return
+            except Exception as exc:
+                log.debug(f"AutoTrader {pair}: NY momentum filter failed (non-fatal): {exc}")
 
     if day_sig.action == "DAY_HOLD":
         with state._lock:

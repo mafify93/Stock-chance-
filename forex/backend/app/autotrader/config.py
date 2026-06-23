@@ -79,6 +79,13 @@ class AutoTraderConfig:
     block_ema_ny_open: bool = False         # skip EMA fallback during 13:00–17:00 UTC (NY open)
                                             # tested False — gate removes good trades alongside bad ones
 
+    # --- NY open momentum alignment ---
+    use_ny_open_momentum_filter: bool = True  # during 13:00–16:00 UTC, only take EMA entries
+                                              # that align with the actual NY session direction
+                                              # (price vs. first 13:00 UTC bar open). Prevents
+                                              # EMA from fading NY open moves based on stale
+                                              # London VWAP direction.
+
     # --- ICT Silver Bullet ---
     use_silver_bullet: bool = True          # FVG entries at 07:00, 14:00, 18:00 UTC windows
 
@@ -91,6 +98,8 @@ class AutoTraderConfig:
     atr_expansion_lookback: int = 20        # number of M5 bars to average ATR over for the check
 
     # --- Universe ---
+    # GBP_USD and USD_JPY removed — both net-negative across 5000-bar backtests
+    # (GBP/USD -$21, USD/JPY -$12). EUR_USD, EUR_JPY, GBP_JPY are consistently profitable.
     pairs: list[str] = field(default_factory=lambda: [
-        "EUR_USD", "GBP_USD", "USD_JPY", "EUR_JPY", "GBP_JPY",
+        "EUR_USD", "EUR_JPY", "GBP_JPY",
     ])

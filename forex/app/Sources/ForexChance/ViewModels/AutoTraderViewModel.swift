@@ -24,6 +24,7 @@ final class AutoTraderViewModel: ObservableObject {
     @Published var useOrderBlocks: Bool = true
     @Published var dailyLossHaltPct: Double = 3.0  // percent; 0 = disabled
     @Published var useAtrExpansionFilter: Bool = false
+    @Published var useNyOpenMomentumFilter: Bool = true
 
     // AI Learner stats
     @Published var learnerStats: LearnerStats?
@@ -85,6 +86,7 @@ final class AutoTraderViewModel: ObservableObject {
         useOrderBlocks = config.useOrderBlocks ?? true
         dailyLossHaltPct = (config.dailyLossHaltPct ?? 0.03) * 100
         useAtrExpansionFilter = config.useAtrExpansionFilter ?? false
+        useNyOpenMomentumFilter = config.useNyOpenMomentumFilter ?? true
     }
 
     // MARK: - Learner stats
@@ -126,7 +128,8 @@ final class AutoTraderViewModel: ObservableObject {
             maxTradesPerDay: maxTradesPerDay,
             minStopPips: nil,
             maxStopPips: nil,
-            useAtrExpansionFilter: useAtrExpansionFilter
+            useAtrExpansionFilter: useAtrExpansionFilter,
+            useNyOpenMomentumFilter: useNyOpenMomentumFilter
         )
         do {
             backtestResult = try await client.backtest(request)
@@ -159,7 +162,8 @@ final class AutoTraderViewModel: ObservableObject {
             useSilverBullet: useSilverBullet,
             useOrderBlocks: useOrderBlocks,
             dailyLossHaltPct: dailyLossHaltPct / 100,
-            useAtrExpansionFilter: useAtrExpansionFilter
+            useAtrExpansionFilter: useAtrExpansionFilter,
+            useNyOpenMomentumFilter: useNyOpenMomentumFilter
         )
         do {
             try await client.updateAutoTraderConfig(patch)

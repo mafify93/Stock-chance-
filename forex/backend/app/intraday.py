@@ -52,6 +52,31 @@ def latest_session(df: pd.DataFrame) -> pd.DataFrame:
     return df[mask]
 
 
+def london_session_bars(df: pd.DataFrame) -> pd.DataFrame:
+    """Return bars since the most recent London open (07:00 UTC).
+
+    Anchoring VWAP and short-term indicators to London open rather than UTC
+    midnight gives a session-relevant baseline. A midnight-anchored VWAP at
+    13:00 UTC carries 13 hours of stale Asia data and creates persistent
+    directional bias that causes EMA to generate counter-trend signals at NY
+    open. The London anchor gives 6 hours of fresh, institutional-flow data.
+
+    Falls back to latest_session() if fewer than 3 bars are available since
+    London open (e.g. very early London, or dataframe with limited history).
+    """
+    if df.empty:
+        return df
+    last_ts = df.index[-1]
+    if hasattr(last_ts, "tzinfo") and last_ts.tzinfo is not None:
+        anchor = pd.Timestamp(last_ts.date(), tz="UTC").replace(hour=7)
+    else:
+        anchor = pd.Timestamp(last_ts.date()).replace(hour=7)
+    if last_ts < anchor:
+        anchor = anchor - pd.Timedelta(days=1)
+    bars = df[df.index >= anchor]
+    return bars if len(bars) >= 3 else latest_session(df)
+
+
 @dataclass
 class DaySignalResult:
     pair: str
@@ -82,7 +107,7 @@ def compute_day_signal(pair: str, df: pd.DataFrame) -> DaySignalResult:
     """Compute a same-day Buy/Sell/Hold signal from 5-minute intraday bars."""
     decimals = pips.price_decimals(pair)
 
-    session_df = latest_session(df)
+    session_df = london_session_bars(df)
     if session_df is None or len(session_df) < 3:
         raise ValueError(f"Not enough intraday data for {pips.display(pair)} yet today")
 

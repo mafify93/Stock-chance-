@@ -353,6 +353,11 @@ struct AutoTraderView: View {
                 .font(.subheadline)
                 .foregroundColor(.white)
 
+            Toggle("NY Open Momentum Filter", isOn: $vm.useNyOpenMomentumFilter)
+                .tint(Theme.accent)
+                .font(.subheadline)
+                .foregroundColor(.white)
+
             if vm.status?.running == true {
                 Text("Changes apply to the running bot immediately.")
                     .font(.caption2)
@@ -375,6 +380,7 @@ struct AutoTraderView: View {
         .onChange(of: vm.useSilverBullet) { _ in applyConfig() }
         .onChange(of: vm.useOrderBlocks) { _ in applyConfig() }
         .onChange(of: vm.useAtrExpansionFilter) { _ in applyConfig() }
+        .onChange(of: vm.useNyOpenMomentumFilter) { _ in applyConfig() }
     }
 
     private func applyConfig() {
