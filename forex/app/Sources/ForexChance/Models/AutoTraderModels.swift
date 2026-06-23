@@ -136,7 +136,7 @@ struct BacktestStatsModel: Codable, Identifiable {
     var endingNav: Double
 
     var id: String { pair }
-    var winRatePct: Double { winRate * 100 }
+    var winRatePct: Double { winRate }  // backend already returns percent
 }
 
 struct BacktestTradeModel: Codable, Identifiable {
