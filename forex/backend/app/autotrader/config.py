@@ -26,6 +26,9 @@ class AutoTraderConfig:
     # --- Position management ---
     max_positions: int = 2          # max concurrent open bot positions
     max_trades_per_day: int = 50    # daily trade cap
+    daily_loss_halt_pct: float = 0.03  # pause trading today if daily P&L drops below
+                                       # this fraction of start-of-day balance (3%);
+                                       # resets automatically next session. 0 = disabled.
 
     # --- Entry filters ---
     min_confidence: float = 0.65    # minimum intraday signal confidence (0–1 scale)

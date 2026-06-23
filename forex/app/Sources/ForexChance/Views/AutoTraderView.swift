@@ -309,6 +309,7 @@ struct AutoTraderView: View {
             configSlider(label: "Max spread (pips)", value: $vm.maxSpreadPips, range: 1...8, step: 0.5, format: "%.1f")
             configStepper(label: "Max positions", value: $vm.maxPositions, range: 1...4)
             configStepper(label: "Max trades/day", value: $vm.maxTradesPerDay, range: 1...50)
+            configSlider(label: "Daily loss limit", value: $vm.dailyLossHaltPct, range: 0...10, step: 0.5, format: "%.1f%%")
 
             Divider().background(Theme.cardBorder)
 
@@ -360,6 +361,7 @@ struct AutoTraderView: View {
         .onChange(of: vm.maxSpreadPips) { _ in applyConfig() }
         .onChange(of: vm.maxPositions) { _ in applyConfig() }
         .onChange(of: vm.maxTradesPerDay) { _ in applyConfig() }
+        .onChange(of: vm.dailyLossHaltPct) { _ in applyConfig() }
         .onChange(of: vm.sessionFilter) { _ in applyConfig() }
         .onChange(of: vm.londonBreakout) { _ in applyConfig() }
         .onChange(of: vm.useAiLearner) { _ in applyConfig() }

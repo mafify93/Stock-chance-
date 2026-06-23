@@ -23,6 +23,7 @@ struct AutoTraderConfig: Codable, Hashable {
     var useOrb: Bool?
     var useSilverBullet: Bool?
     var useOrderBlocks: Bool?
+    var dailyLossHaltPct: Double?
 }
 
 // MARK: - Auto-Trader Trade Record
@@ -209,4 +210,5 @@ struct AutoTraderConfigPatch: Codable {
     var useOrb: Bool?
     var useSilverBullet: Bool?
     var useOrderBlocks: Bool?
+    var dailyLossHaltPct: Double?
 }

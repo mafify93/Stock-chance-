@@ -82,6 +82,7 @@ class ConfigPatch(BaseModel):
     use_orb: bool | None = None
     use_silver_bullet: bool | None = None
     use_order_blocks: bool | None = None
+    daily_loss_halt_pct: float | None = None
 
 
 class BacktestRequest(BaseModel):
@@ -149,6 +150,7 @@ class ConfigOut(BaseModel):
     use_orb: bool
     use_silver_bullet: bool
     use_order_blocks: bool
+    daily_loss_halt_pct: float
 
 
 class StatusOut(BaseModel):

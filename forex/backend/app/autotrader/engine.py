@@ -596,6 +596,20 @@ async def scan_and_trade() -> None:
             # Refresh economic calendar blackout windows for the new trading day.
             refresh_blackout_windows(cfg)
 
+    # ── Daily loss circuit-breaker ────────────────────────────────────────────
+    if (
+        cfg.daily_loss_halt_pct > 0
+        and state.start_of_day_balance
+        and state.start_of_day_balance > 0
+        and state.daily_pl / state.start_of_day_balance <= -cfg.daily_loss_halt_pct
+    ):
+        log.info(
+            f"AutoTrader: daily loss circuit-breaker — P&L {state.daily_pl:+.2f} "
+            f"({state.daily_pl / state.start_of_day_balance:.1%} of SOD balance), "
+            f"no new entries today"
+        )
+        return
+
     # ── Trade-count guards ────────────────────────────────────────────────────
     if state.trades_today >= cfg.max_trades_per_day:
         log.debug("AutoTrader: daily trade cap reached")
