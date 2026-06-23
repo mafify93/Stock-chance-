@@ -73,7 +73,7 @@ class AutoTraderConfig:
     use_ict_sweep: bool = True              # NY 9am setup: Asia/London range sweep + FVG reversal
 
     # --- Opening Range Breakout ---
-    use_orb: bool = True                    # NY open 15-min range breakout (13:15–17:00 UTC)
+    use_orb: bool = False                   # backtested PF 0.97, Calmar -0.07 — net-negative; disabled
 
     # --- ICT Silver Bullet ---
     use_silver_bullet: bool = True          # FVG entries at 07:00, 14:00, 18:00 UTC windows
