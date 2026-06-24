@@ -114,8 +114,8 @@ class AutoTraderConfig:
     atr_expansion_lookback: int = 20        # number of M5 bars to average ATR over for the check
 
     # --- Universe ---
-    # GBP_USD and USD_JPY removed — both net-negative across 5000-bar backtests
-    # (GBP/USD -$21, USD/JPY -$12). EUR_USD, EUR_JPY, GBP_JPY are consistently profitable.
+    # EUR_USD EMA signal confirmed noise in live trading — 9/10 trades breakeven,
+    # burns through daily trade limit. EUR_JPY and GBP_JPY are the real edge.
     pairs: list[str] = field(default_factory=lambda: [
-        "EUR_USD", "EUR_JPY", "GBP_JPY",
+        "EUR_JPY", "GBP_JPY",
     ])
