@@ -114,8 +114,8 @@ class AutoTraderConfig:
     atr_expansion_lookback: int = 20        # number of M5 bars to average ATR over for the check
 
     # --- Universe ---
-    # EUR_USD EMA signal confirmed noise in live trading — 9/10 trades breakeven,
-    # burns through daily trade limit. EUR_JPY and GBP_JPY are the real edge.
+    # EUR_USD included — produced +$779 in first live session.
+    # GBP_USD and USD_JPY remain excluded (net-negative in backtest).
     pairs: list[str] = field(default_factory=lambda: [
-        "EUR_JPY", "GBP_JPY",
+        "EUR_USD", "EUR_JPY", "GBP_JPY",
     ])

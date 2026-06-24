@@ -107,7 +107,7 @@ class TestAutoTraderConfig:
         assert cfg.max_positions == 2
         assert cfg.max_trades_per_day == 50
         assert cfg.session_filter is True
-        assert "EUR_JPY" in cfg.pairs
+        assert "EUR_USD" in cfg.pairs
 
     def test_custom_values(self):
         cfg = AutoTraderConfig(risk_pct=0.02, max_positions=4)
