@@ -62,7 +62,7 @@ class AutoTraderConfig:
     # --- London Open Breakout ---
     use_london_breakout: bool = True        # use Asian-range breakout at London open
     london_breakout_pairs: list[str] = field(default_factory=lambda: [
-        "EUR_JPY", "GBP_JPY",               # strongest performers; cleanest London breakouts
+        "GBP_JPY",                          # cleanest London breakout; EUR_JPY adds noise
     ])
 
     # --- AI self-learning ---
