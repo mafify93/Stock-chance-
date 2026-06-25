@@ -114,8 +114,8 @@ class AutoTraderConfig:
     atr_expansion_lookback: int = 20        # number of M5 bars to average ATR over for the check
 
     # --- Universe ---
-    # EUR_USD included — produced +$779 in first live session.
-    # GBP_USD and USD_JPY remain excluded (net-negative in backtest).
+    # EUR_JPY + GBP_JPY only. EUR_USD backtest Calmar 2.36 vs 3.83 without it.
+    # Single session win (+$779) was an outlier — 5000-bar data is conclusive.
     pairs: list[str] = field(default_factory=lambda: [
-        "EUR_USD", "EUR_JPY", "GBP_JPY",
+        "EUR_JPY", "GBP_JPY",
     ])
