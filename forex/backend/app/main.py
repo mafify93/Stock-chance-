@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import asynccontextmanager
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
@@ -12,32 +13,6 @@ from .autotrader.state import bot_state
 from .routers import autotrader, broker, daytrade, pairs, screener, signal
 
 log = logging.getLogger(__name__)
-
-app = FastAPI(
-    title="Forex Chance API",
-    description=(
-        "Technical-analysis signals (buy/sell/hold), a same-day intraday "
-        "engine, a multi-pair screener, OANDA order execution, and a fully "
-        "automated trading bot for the Forex Chance iOS/macOS app."
-    ),
-    version="0.2.0",
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-app.include_router(pairs.router)
-app.include_router(signal.router)
-app.include_router(screener.router)
-app.include_router(daytrade.router)
-app.include_router(broker.router)
-app.include_router(autotrader.router)
-
-# ── APScheduler — runs the auto-trader scan every 5 min ──────────────────────
 
 _scheduler = AsyncIOScheduler(timezone="UTC")
 
@@ -54,10 +29,9 @@ async def _scan_job() -> None:
         log.error(f"AutoTrader scheduler error: {exc}")
 
 
-@app.on_event("startup")
-async def _startup() -> None:
-    # Reload persisted state first so the scheduler honours the saved config and
-    # the bot auto-resumes if it was running before the restart.
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    # ── Startup ───────────────────────────────────────────────────────────────
     was_running = False
     try:
         was_running = load_into_state()
@@ -76,10 +50,36 @@ async def _startup() -> None:
         except Exception as exc:
             log.error(f"AutoTrader: auto-resume resync failed: {exc}")
 
+    yield  # app runs here
 
-@app.on_event("shutdown")
-async def _shutdown() -> None:
+    # ── Shutdown ──────────────────────────────────────────────────────────────
     _scheduler.shutdown(wait=False)
+
+
+app = FastAPI(
+    title="Forex Chance API",
+    description=(
+        "Technical-analysis signals (buy/sell/hold), a same-day intraday "
+        "engine, a multi-pair screener, OANDA order execution, and a fully "
+        "automated trading bot for the Forex Chance iOS/macOS app."
+    ),
+    version="0.2.0",
+    lifespan=_lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(pairs.router)
+app.include_router(signal.router)
+app.include_router(screener.router)
+app.include_router(daytrade.router)
+app.include_router(broker.router)
+app.include_router(autotrader.router)
 
 
 # ── Health / root ─────────────────────────────────────────────────────────────

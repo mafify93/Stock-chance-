@@ -608,6 +608,7 @@ async def scan_and_trade() -> None:
 
     # ── Daily reset & loss-limit check ───────────────────────────────────────
     today = now.date()
+    needs_calendar_refresh = False
     with state._lock:
         if state.session_date != today:
             state.session_date = today
@@ -616,8 +617,12 @@ async def scan_and_trade() -> None:
             state.trades_today = 0
             state.halted = False
             state.halt_reason = ""
-            # Refresh economic calendar blackout windows for the new trading day.
-            refresh_blackout_windows(cfg)
+            needs_calendar_refresh = True
+
+    # Refresh outside the lock via a thread so the blocking HTTP call doesn't
+    # freeze the asyncio event loop for up to 10 seconds once per trading day.
+    if needs_calendar_refresh:
+        await asyncio.to_thread(refresh_blackout_windows, cfg)
 
     # ── Daily loss circuit-breaker ────────────────────────────────────────────
     if (

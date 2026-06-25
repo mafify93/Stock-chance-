@@ -159,8 +159,10 @@ class TradeLearner:
             importances = None
             if self._model is not None:
                 try:
-                    names = [f for f in TradeFeatures.__dataclass_fields__
-                             if f not in ("pair", "side", "signal_type")]
+                    names = [
+                        "pair", "side", "confidence", "stop_pips",
+                        "spread_pips", "atr_pips", "hour_utc", "signal_type",
+                    ]
                     importances = {
                         names[i]: round(float(v), 4)
                         for i, v in enumerate(self._model.feature_importances_)
