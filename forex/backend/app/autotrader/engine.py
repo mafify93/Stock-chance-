@@ -762,8 +762,8 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
         # EMA session window: restrict fallback to genuine momentum windows only.
         if cfg.ema_session_window:
             ema_min = now.hour * 60 + now.minute
-            in_london_open = 7 * 60 <= ema_min < 9 * 60 + 30
-            in_ny_open = 13 * 60 + 30 <= ema_min < 15 * 60 + 30
+            in_london_open = 7 * 60 <= ema_min < 10 * 60
+            in_ny_open = 13 * 60 <= ema_min < 16 * 60
             if not (in_london_open or in_ny_open):
                 return
 
