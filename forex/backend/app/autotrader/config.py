@@ -116,5 +116,5 @@ class AutoTraderConfig:
     # EUR_JPY + GBP_JPY only. EUR_USD backtest Calmar 2.36 vs 3.83 without it.
     # Single session win (+$779) was an outlier — 5000-bar data is conclusive.
     pairs: list[str] = field(default_factory=lambda: [
-        "EUR_JPY", "GBP_JPY",
+        "EUR_USD", "EUR_JPY", "GBP_JPY",
     ])
