@@ -308,7 +308,11 @@ async def backtest(req: BacktestRequest):
             setattr(cfg, field, val)
 
     pairs = req.pairs or cfg.pairs
-    bars = max(100, min(req.bars, 5000))  # OANDA caps a single candle request
+    # Cap bars at 3000 (≈10 trading days): beyond this the computation time on
+    # a shared Render instance exceeds mobile client timeouts without adding
+    # meaningful statistical sample size. 5000-bar backtests can be run by
+    # lowering bars in the app settings.
+    bars = max(100, min(req.bars, 3000))
 
     candles_by_pair: dict = {}
     h1_by_pair: dict = {}
@@ -335,7 +339,19 @@ async def backtest(req: BacktestRequest):
             except Exception:
                 pass  # H1 is optional; the filter degrades gracefully without it
 
-    await asyncio.gather(*[_load_pair(p) for p in pairs])
+    # 55-second hard deadline: OANDA fetch (≤20s) + compute (≤25s) + buffer.
+    # Returns a clear 504 rather than silently hanging until the mobile client
+    # times out and shows a generic network error.
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(*[_load_pair(p) for p in pairs]),
+            timeout=55,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            504,
+            detail="Backtest timed out fetching candles. Try fewer bars or check your connection.",
+        )
 
     if not candles_by_pair:
         raise HTTPException(
@@ -343,12 +359,21 @@ async def backtest(req: BacktestRequest):
         )
 
     spread_by_pair = {p: req.spread_pips for p in candles_by_pair}
-    result = await asyncio.to_thread(
-        run_backtest, candles_by_pair, cfg, spread_by_pair, req.starting_nav,
-        h1_by_pair or None,
-        req.slippage_pips,
-        req.walk_forward_pct,
-    )
+    try:
+        result = await asyncio.wait_for(
+            asyncio.to_thread(
+                run_backtest, candles_by_pair, cfg, spread_by_pair, req.starting_nav,
+                h1_by_pair or None,
+                req.slippage_pips,
+                req.walk_forward_pct,
+            ),
+            timeout=55,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            504,
+            detail="Backtest computation timed out. Try reducing the number of bars.",
+        )
     result["errors"] = errors
     result["bars_per_pair"] = bars
     return result
