@@ -89,6 +89,7 @@ class ConfigPatch(BaseModel):
     daily_loss_halt_pct: float | None = None
     use_atr_expansion_filter: bool | None = None
     atr_expansion_lookback: int | None = None
+    h1_trend_filter: bool | None = None
     block_ema_ny_open: bool | None = None
     use_ny_open_momentum_filter: bool | None = None
     ema_session_window: bool | None = None
@@ -149,6 +150,8 @@ class ConfigOut(BaseModel):
     scan_interval_minutes: int
     pairs: list[str]
     signal_confirmation: bool
+    breakeven_stop: bool
+    breakeven_r: float
     partial_tp: bool
     time_decay_stop: bool
     max_trade_hours: float
@@ -158,6 +161,8 @@ class ConfigOut(BaseModel):
     trail_atr_period: int
     trail_atr_mult: float
     profit_lock_pips: float
+    hwm_close: bool
+    hwm_r: float
     use_london_breakout: bool
     london_breakout_pairs: list[str]
     use_ai_learner: bool
@@ -169,6 +174,7 @@ class ConfigOut(BaseModel):
     daily_loss_halt_pct: float
     use_atr_expansion_filter: bool
     atr_expansion_lookback: int
+    h1_trend_filter: bool
     block_ema_ny_open: bool
     use_ny_open_momentum_filter: bool
     ema_session_window: bool

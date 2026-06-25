@@ -120,10 +120,30 @@ async def monitor_open_trades() -> None:
                         trade.side,
                         state.base_url,
                     )
+                    # Fetch realized P&L so daily accounting and McKay step-down stay accurate.
+                    realized_pl = 0.0
+                    try:
+                        trade_data = await asyncio.to_thread(
+                            oanda.get_trade,
+                            state.token, state.account_id, trade.trade_id, state.base_url,
+                        )
+                        realized_pl = float(trade_data.get("realizedPL") or 0)
+                    except Exception:
+                        pass
                     with state._lock:
                         trade.status = "closed"
                         trade.closed_at = now.isoformat()
-                    log.info(f"AutoTrader: end-of-session closed {trade.pair} ({trade.side})")
+                        trade.realized_pl = realized_pl
+                        state.daily_pl += realized_pl
+                        if realized_pl < 0:
+                            state.consecutive_losses += 1
+                        elif realized_pl > 0:
+                            state.consecutive_losses = 0
+                    log.info(
+                        f"AutoTrader: end-of-session closed {trade.pair} ({trade.side}) "
+                        f"P&L {realized_pl:+.2f}"
+                    )
+                    telegram.notify_trade_close(trade.pair, trade.side, realized_pl)
                 except Exception as exc:
                     log.warning(f"AutoTrader: end-of-session close failed for {trade.pair}: {exc}")
         return
