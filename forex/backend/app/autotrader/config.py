@@ -91,8 +91,8 @@ class AutoTraderConfig:
     # crossovers are pure ranging-market noise. Restricting EMA to the two
     # genuine momentum windows cuts eligible bars by ~60% while keeping the
     # trades that actually follow through.
-    ema_session_window: bool = True  # only allow EMA fallback 07:00–10:30 UTC (London open)
-                                     # and 13:30–16:30 UTC (NY open momentum)
+    ema_session_window: bool = True  # only allow EMA fallback 07:00–09:30 UTC (London open)
+                                     # and 13:30–15:30 UTC (NY open momentum)
 
     # --- NY open momentum alignment ---
     use_ny_open_momentum_filter: bool = True  # during 13:00–16:00 UTC, only take EMA entries
@@ -113,12 +113,10 @@ class AutoTraderConfig:
     atr_expansion_lookback: int = 20        # number of M5 bars to average ATR over for the check
 
     # --- Universe ---
-    # EUR/JPY: 41% WR, Calmar 1.03 — primary pair.
-    # GBP/JPY + USD/JPY added: JPY pairs share session timing and benefit from the
-    # same ADX/Stochastic/MACD/SMA-30 quality filters. More pairs = more
-    # opportunities without changing the per-trade risk or signal logic.
+    # EUR/JPY: 41% WR, Calmar 4.08 — sole live pair.
+    # GBP/JPY tested at 28% WR (net-negative risk-adjusted); USD/JPY untested.
+    # Adding weaker pairs dilutes the equity curve and raises drawdown without
+    # proportional reward — keep single best-edge pair only.
     pairs: list[str] = field(default_factory=lambda: [
         "EUR_JPY",
-        "GBP_JPY",
-        "USD_JPY",
     ])

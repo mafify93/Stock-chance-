@@ -252,22 +252,6 @@ def compute_day_signal(pair: str, df: pd.DataFrame) -> DaySignalResult:
         except Exception:
             pass
 
-    # --- Medium-term trend: price vs SMA(30) on M5 session bars ---------------
-    # SMA(30) covers the last 2.5 hours — the intraday micro-trend. Entries that
-    # align with this trend have significantly higher follow-through probability
-    # than ones that fight it. Require ≥ 3 pips of gap to skip flat/ranging sessions.
-    if len(session_df) >= 32:
-        try:
-            sma30 = float(session_df["Close"].iloc[-30:].mean())
-            gap_pips = pips.to_pips(pair, abs(price - sma30))
-            if gap_pips >= 3.0:
-                if price > sma30:
-                    votes.append((0.55, 1.0, "Price above 2.5h SMA — medium-term trend up"))
-                else:
-                    votes.append((-0.55, 1.0, "Price below 2.5h SMA — medium-term trend down"))
-        except Exception:
-            pass
-
     # --- Candle body quality: reward strong momentum bars, ignore dojis ------
     # A candle with body ≥ 60% of its high-low range shows committed order flow.
     # Doji bars (tiny body) are indecision — the same-direction vote is absent.

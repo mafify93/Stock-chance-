@@ -295,8 +295,8 @@ def simulate_pair(
             # next in-window bar must confirm independently.
             if cfg.ema_session_window:
                 ema_min = bar_dt.hour * 60 + bar_dt.minute
-                in_london_open = 7 * 60 <= ema_min < 10 * 60 + 30
-                in_ny_open = 13 * 60 + 30 <= ema_min < 16 * 60 + 30
+                in_london_open = 7 * 60 <= ema_min < 9 * 60 + 30
+                in_ny_open = 13 * 60 + 30 <= ema_min < 15 * 60 + 30
                 if not (in_london_open or in_ny_open):
                     ema_pending = None
                     i += 1
