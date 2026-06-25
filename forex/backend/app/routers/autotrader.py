@@ -98,6 +98,8 @@ class BacktestRequest(BaseModel):
     pairs: list[str] | None = None       # defaults to the live config's pair list
     bars: int = 2000                     # M5 bars of history per pair (~7 trading days)
     spread_pips: float = 1.0             # round-trip spread cost charged per trade
+    slippage_pips: float = 0.5           # adverse entry + stop slippage per trade
+    walk_forward_pct: float = 0.3        # hold-out fraction for out-of-sample validation (0 = disabled)
     starting_nav: float = 1000.0
     # Strategy overrides — default to the live AutoTraderConfig values.
     risk_pct: float | None = None
@@ -332,6 +334,8 @@ async def backtest(req: BacktestRequest):
     result = await asyncio.to_thread(
         run_backtest, candles_by_pair, cfg, spread_by_pair, req.starting_nav,
         h1_by_pair or None,
+        req.slippage_pips,
+        req.walk_forward_pct,
     )
     result["errors"] = errors
     result["bars_per_pair"] = bars

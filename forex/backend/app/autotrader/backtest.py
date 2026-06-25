@@ -157,6 +157,7 @@ def simulate_pair(
     spread_pips: float,
     starting_nav: float,
     h1_df: pd.DataFrame | None = None,
+    slippage_pips: float = 0.0,
 ) -> tuple[list[BacktestTrade], float]:
     """Walk one pair's M5 history bar-by-bar and return (trades, ending_nav).
 
@@ -389,6 +390,13 @@ def simulate_pair(
         entry = float(df["Open"].iloc[entry_idx])
         entry_time = df.index[entry_idx]
 
+        # Market order entry slippage: fills adversely (long = higher, short = lower)
+        slip = pip_module.from_pips(pair, slippage_pips)
+        if is_long:
+            entry += slip
+        else:
+            entry -= slip
+
         stop_delta = pip_module.from_pips(pair, stop_pips)
         tgt_delta = pip_module.from_pips(pair, target_pips)
         if is_long:
@@ -404,12 +412,10 @@ def simulate_pair(
             continue
 
         # ── Walk forward until stop or target is touched ──────────────────────
-        # Breakeven fires when price reaches cfg.breakeven_r × stop distance
-        # (same formula as the live engine), then moves the stop to entry + (spread+1) pips.
-        # The spread+1 buffer ensures breakeven exits always produce a small positive
-        # net result even after the round-trip spread is deducted — otherwise a 1-pip
-        # gross exit at 1 pip spread charges zero net and distorts win rate calculations.
-        be_buffer = pip_module.from_pips(pair, spread_pips + 1.0)
+        # Breakeven fires when price reaches cfg.breakeven_r × stop distance.
+        # Fixed 1-pip buffer from entry — spread is already deducted in net_pips,
+        # so including spread_pips here would double-count it and corrupt spread sensitivity.
+        be_buffer = pip_module.from_pips(pair, 1.0)
         be_advance = stop_delta * cfg.breakeven_r   # e.g. 0.5 × 15 pips = 7.5 pips
         if is_long:
             be_trigger = entry + be_advance
@@ -435,7 +441,11 @@ def simulate_pair(
                 tgt_hit = lo <= target_price
             if stop_hit:  # worst-case priority
                 outcome = "breakeven" if armed else "stop"
-                exit_price = cur_stop
+                # Stop orders fill at market — apply adverse slippage
+                if is_long:
+                    exit_price = cur_stop - slip
+                else:
+                    exit_price = cur_stop + slip
                 exit_time = df.index[j]
                 break
             if cfg.breakeven_stop and not armed:
@@ -547,12 +557,17 @@ def run_backtest(
     spread_pips_by_pair: dict[str, float],
     starting_nav: float,
     h1_candles_by_pair: dict[str, pd.DataFrame] | None = None,
+    slippage_pips: float = 0.0,
+    walk_forward_pct: float = 0.0,
 ) -> dict:
     """Run the full backtest across every pair and return a JSON-able summary.
 
     `candles_by_pair` maps a pair to its M5 OHLCV DataFrame.
     `spread_pips_by_pair` maps a pair to the spread (in pips) to charge per trade.
     `h1_candles_by_pair` maps a pair to its H1 DataFrame for the H1 trend filter.
+    `slippage_pips` is applied adversely at entry and stop exits to model realistic fill costs.
+    `walk_forward_pct` (0–1): when >0, the last N% of each pair's bars are run as an
+    out-of-sample test set; results appear under "walk_forward" in the response.
     """
     per_pair: list[BacktestStats] = []
     all_trades: list[BacktestTrade] = []
@@ -562,7 +577,7 @@ def run_backtest(
         spread = spread_pips_by_pair.get(pair, 1.0)
         h1_df = (h1_candles_by_pair or {}).get(pair)
         pair_start = nav
-        trades, nav = simulate_pair(pair, df, cfg, spread, pair_start, h1_df=h1_df)
+        trades, nav = simulate_pair(pair, df, cfg, spread, pair_start, h1_df=h1_df, slippage_pips=slippage_pips)
         per_pair.append(summarize(pair, trades, pair_start, nav))
         all_trades.extend(trades)
 
@@ -585,6 +600,48 @@ def run_backtest(
         st_stats = summarize(strategy_name, strategy_trades, starting_nav, starting_nav + st_pnl)
         per_strategy.append(st_stats)
 
+    # Walk-forward out-of-sample validation.
+    # Run the last walk_forward_pct of bars as an unseen test set to check
+    # whether the edge found on the full dataset holds on data the strategy
+    # was never tuned against. A large drop in Calmar on the OOS set signals
+    # curve-fitting; a similar Calmar confirms a real edge.
+    oos_result: dict | None = None
+    if 0 < walk_forward_pct < 1:
+        oos_nav = starting_nav
+        oos_per_pair: list[BacktestStats] = []
+        oos_all_trades: list[BacktestTrade] = []
+
+        for pair, df in candles_by_pair.items():
+            split_idx = int(len(df) * (1 - walk_forward_pct))
+            df_oos = df.iloc[split_idx:]
+            if len(df_oos) < 50:
+                continue
+            spread = spread_pips_by_pair.get(pair, 1.0)
+            h1_df = (h1_candles_by_pair or {}).get(pair)
+            h1_oos: pd.DataFrame | None = None
+            if h1_df is not None and len(h1_df) > 0:
+                h1_split = int(len(h1_df) * (1 - walk_forward_pct))
+                h1_oos = h1_df.iloc[h1_split:]
+            pair_oos_start = oos_nav
+            oos_trades, oos_nav = simulate_pair(
+                pair, df_oos, cfg, spread, pair_oos_start,
+                h1_df=h1_oos, slippage_pips=slippage_pips,
+            )
+            oos_per_pair.append(summarize(pair, oos_trades, pair_oos_start, oos_nav))
+            oos_all_trades.extend(oos_trades)
+
+        oos_all_trades.sort(key=lambda t: t.entry_time)
+        oos_overall = summarize("ALL_OOS", oos_all_trades, starting_nav, oos_nav)
+        oos_result = {
+            "train_pct": round((1 - walk_forward_pct) * 100),
+            "test_pct": round(walk_forward_pct * 100),
+            "starting_nav": round(starting_nav, 2),
+            "ending_nav": round(oos_nav, 2),
+            "overall": oos_overall.__dict__,
+            "per_pair": [s.__dict__ for s in oos_per_pair],
+            "trade_count": len(oos_all_trades),
+        }
+
     return {
         "starting_nav": round(starting_nav, 2),
         "ending_nav": round(nav, 2),
@@ -605,4 +662,5 @@ def run_backtest(
         "per_strategy": [s.__dict__ for s in per_strategy],
         "trade_count": len(all_trades),
         "trades": [t.__dict__ for t in all_trades[:200]],  # cap payload
+        "walk_forward": oos_result,
     }
