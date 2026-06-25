@@ -121,6 +121,7 @@ class BacktestRequest(BaseModel):
     use_ny_open_momentum_filter: bool | None = None
     ema_session_window: bool | None = None
     use_ema_fallback: bool | None = None
+    use_london_breakout: bool | None = None
 
 
 class TradeOut(BaseModel):
@@ -300,7 +301,7 @@ async def backtest(req: BacktestRequest):
         "h1_trend_filter", "breakeven_stop",
         "max_trades_per_day", "min_stop_pips", "max_stop_pips",
         "use_atr_expansion_filter", "use_ny_open_momentum_filter",
-        "ema_session_window", "use_ema_fallback",
+        "ema_session_window", "use_ema_fallback", "use_london_breakout",
     ):
         val = getattr(req, field, None)
         if val is not None:

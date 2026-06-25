@@ -59,7 +59,7 @@ class AutoTraderConfig:
     scan_interval_minutes: int = 5  # how often the engine scans the pair list
 
     # --- London Open Breakout ---
-    use_london_breakout: bool = True        # use Asian-range breakout at London open
+    use_london_breakout: bool = False       # backtested PF 0.50, Calmar -1.00 — net-negative; disabled
     london_breakout_pairs: list[str] = field(default_factory=lambda: [
         "GBP_JPY",                          # cleanest London breakout; EUR_JPY adds noise
     ])
