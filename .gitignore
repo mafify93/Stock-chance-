@@ -13,6 +13,10 @@ backend/data/
 app/*.xcodeproj/
 app/.build/
 app/DerivedData/
+forex/app/*.xcodeproj/
+forex/app/build/
+forex/app/.build/
+forex/app/DerivedData/
 **/*.xcuserstate
 **/xcuserdata/
 
