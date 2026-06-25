@@ -295,8 +295,8 @@ def simulate_pair(
             # next in-window bar must confirm independently.
             if cfg.ema_session_window:
                 ema_min = bar_dt.hour * 60 + bar_dt.minute
-                in_london_open = 7 * 60 <= ema_min < 9 * 60 + 30
-                in_ny_open = 13 * 60 + 30 <= ema_min < 15 * 60 + 30
+                in_london_open = 7 * 60 <= ema_min < 10 * 60 + 30
+                in_ny_open = 13 * 60 + 30 <= ema_min < 16 * 60 + 30
                 if not (in_london_open or in_ny_open):
                     ema_pending = None
                     i += 1
@@ -356,12 +356,18 @@ def simulate_pair(
                 ema_pending = None
                 i += 1
                 continue
-            prev_pending = ema_pending
-            ema_pending = sig.action   # store this bar's direction
-            if prev_pending != sig.action:
-                i += 1
-                continue  # first sighting — wait for next bar
-            ema_pending = None  # confirmed — clear so next trade starts fresh
+            # High-confidence signals (≥85) have multiple independent indicators
+            # aligning — enter immediately on first sighting rather than waiting
+            # a second scan and potentially missing the opening of the move.
+            if sig.confidence >= 85.0:
+                ema_pending = None  # clear so next trade starts fresh
+            else:
+                prev_pending = ema_pending
+                ema_pending = sig.action   # store this bar's direction
+                if prev_pending != sig.action:
+                    i += 1
+                    continue  # first sighting — wait for next bar
+                ema_pending = None  # confirmed — clear so next trade starts fresh
         elif sig.action == "DAY_HOLD":
             ema_pending = None  # HOLD also resets the EMA pending state
             i += 1

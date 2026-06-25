@@ -787,8 +787,8 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
         # EMA session window: restrict fallback to genuine momentum windows only.
         if cfg.ema_session_window:
             ema_min = now.hour * 60 + now.minute
-            in_london_open = 7 * 60 <= ema_min < 9 * 60 + 30
-            in_ny_open = 13 * 60 + 30 <= ema_min < 15 * 60 + 30
+            in_london_open = 7 * 60 <= ema_min < 10 * 60 + 30
+            in_ny_open = 13 * 60 + 30 <= ema_min < 16 * 60 + 30
             if not (in_london_open or in_ny_open):
                 return
 
@@ -848,17 +848,24 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
 
     # ── Signal confirmation (EMA signal only — London Breakout is self-confirming)
     if cfg.signal_confirmation and signal_type == "ema_vwap_rsi":
-        prev = state.pending_signals.get(pair)
-        with state._lock:
-            state.pending_signals[pair] = day_sig.action
-        if prev != day_sig.action:
-            log.debug(
-                f"AutoTrader {pair}: {day_sig.action} — waiting for confirmation "
-                f"(previous: {prev or 'none'})"
-            )
-            return
-        with state._lock:
-            state.pending_signals.pop(pair, None)
+        # High-confidence signals (≥85) skip the two-scan wait — multiple
+        # independent indicators are already aligned, so extra confirmation
+        # just delays entry past the best price.
+        if day_sig.confidence >= 85.0:
+            with state._lock:
+                state.pending_signals.pop(pair, None)
+        else:
+            prev = state.pending_signals.get(pair)
+            with state._lock:
+                state.pending_signals[pair] = day_sig.action
+            if prev != day_sig.action:
+                log.debug(
+                    f"AutoTrader {pair}: {day_sig.action} — waiting for confirmation "
+                    f"(previous: {prev or 'none'})"
+                )
+                return
+            with state._lock:
+                state.pending_signals.pop(pair, None)
 
     # ── H1 trend filter ───────────────────────────────────────────────────────
     if cfg.h1_trend_filter:
