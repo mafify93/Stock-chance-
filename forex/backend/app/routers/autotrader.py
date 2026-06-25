@@ -78,6 +78,10 @@ class ConfigPatch(BaseModel):
     use_ai_learner: bool | None = None
     ai_min_win_prob: float | None = None
     profit_lock_pips: float | None = None
+    hwm_close: bool | None = None
+    hwm_r: float | None = None
+    breakeven_stop: bool | None = None
+    breakeven_r: float | None = None
     use_ict_sweep: bool | None = None
     use_orb: bool | None = None
     use_silver_bullet: bool | None = None
