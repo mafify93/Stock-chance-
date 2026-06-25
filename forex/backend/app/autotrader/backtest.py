@@ -433,13 +433,21 @@ def simulate_pair(
         while j < n:
             hi = float(df["High"].iloc[j])
             lo = float(df["Low"].iloc[j])
+            # Arm breakeven BEFORE checking stop_hit — if price reaches
+            # be_trigger earlier in the bar than it reaches the original stop,
+            # the breakeven order fires first and the stop check should use the
+            # updated (tighter) be_stop rather than the original stop.
+            if cfg.breakeven_stop and not armed:
+                if (is_long and hi >= be_trigger) or (not is_long and lo <= be_trigger):
+                    armed = True
+                    cur_stop = be_stop
             if is_long:
                 stop_hit = lo <= cur_stop
                 tgt_hit = hi >= target_price
             else:
                 stop_hit = hi >= cur_stop
                 tgt_hit = lo <= target_price
-            if stop_hit:  # worst-case priority
+            if stop_hit:
                 outcome = "breakeven" if armed else "stop"
                 # Stop orders fill at market — apply adverse slippage
                 if is_long:
@@ -448,10 +456,6 @@ def simulate_pair(
                     exit_price = cur_stop + slip
                 exit_time = df.index[j]
                 break
-            if cfg.breakeven_stop and not armed:
-                if (is_long and hi >= be_trigger) or (not is_long and lo <= be_trigger):
-                    armed = True
-                    cur_stop = be_stop
             if tgt_hit:
                 outcome = "target"
                 exit_price = target_price
