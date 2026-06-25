@@ -25,11 +25,12 @@ from pydantic import BaseModel
 from ..autotrader.backtest import run_backtest
 from ..autotrader.config import AutoTraderConfig
 from ..autotrader.engine import resync_open_trades
-from ..autotrader.learner import trade_learner
+from ..autotrader.learner import TradeFeatures, trade_learner
 from ..autotrader.persistence import save_state
 from ..autotrader.state import bot_state
 from ..providers import oanda
 from ..providers.oanda import LIVE_BASE_URL, PRACTICE_BASE_URL
+from ..autotrader import telegram
 
 router = APIRouter(prefix="/api/autotrader", tags=["autotrader"])
 
@@ -398,9 +399,31 @@ async def emergency_close():
                 trade.side,
                 state.base_url,
             )
+            realized_pl = 0.0
+            try:
+                trade_data = await asyncio.to_thread(
+                    oanda.get_trade,
+                    state.token, state.account_id, trade.trade_id, state.base_url,
+                )
+                realized_pl = float(trade_data.get("realizedPL") or 0)
+            except Exception:
+                pass
             with state._lock:
                 trade.status = "closed"
                 trade.closed_at = datetime.now(timezone.utc).isoformat()
+                trade.realized_pl = realized_pl
+                state.daily_pl += realized_pl
+                if realized_pl < 0:
+                    state.consecutive_losses += 1
+                elif realized_pl > 0:
+                    state.consecutive_losses = 0
+            if trade.entry_features:
+                try:
+                    features = TradeFeatures.from_dict(trade.entry_features)
+                    trade_learner.record(features, realized_pl)
+                except Exception:
+                    pass
+            telegram.notify_trade_close(trade.pair, trade.side, realized_pl)
             closed.append(trade.pair)
         except Exception as exc:
             errors.append(f"{trade.pair}: {exc}")
