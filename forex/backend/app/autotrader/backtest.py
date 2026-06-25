@@ -488,10 +488,11 @@ def simulate_pair(
         )
         trades_today += 1
 
-        # McKay step-down on the net result
-        if net_pips <= 0:
+        # McKay step-down: match live engine — scratch (net=0) is neutral,
+        # only a true loss (net<0) increments the streak.
+        if net_pips < 0:
             consecutive_losses += 1
-        else:
+        elif net_pips > 0:
             consecutive_losses = 0
         if consecutive_losses == 0:
             risk_scale = 1.0
