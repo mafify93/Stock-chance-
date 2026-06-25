@@ -113,8 +113,9 @@ class AutoTraderConfig:
     atr_expansion_lookback: int = 20        # number of M5 bars to average ATR over for the check
 
     # --- Universe ---
-    # EUR/JPY: 41% WR, Calmar 1.03 — generated all EMA P&L in the 5000-bar backtest.
-    # EUR/USD and GBP/JPY were net break-even on the same period; removed.
+    # EUR/JPY: 41% WR, Calmar 1.03 — primary pair. GBP/JPY added back now that
+    # the ADX gate + Stochastic + MACD filters screen out low-quality ranging setups.
     pairs: list[str] = field(default_factory=lambda: [
         "EUR_JPY",
+        "GBP_JPY",
     ])
