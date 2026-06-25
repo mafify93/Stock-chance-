@@ -18,9 +18,8 @@ class AutoTraderConfig:
     max_stop_pips: float = 30.0     # clamp stop distance from above
     breakeven_stop: bool = True     # slide stop to entry + 1 pip once profit ≥ breakeven_r × risk
     breakeven_r: float = 1.0        # fraction of 1R at which breakeven fires (1.0 = full stop away = out of noise zone)
-    profit_lock_pips: float = 8.0   # also fire breakeven when profit hits this many pips (whichever
-                                    # triggers first: R-based or pip-based)
-    hwm_close: bool = True          # close immediately if trade was up ≥ hwm_r and falls back to 0
+    profit_lock_pips: float = 999.0 # pip-based breakeven trigger; 999 = disabled (rely on R-based only)
+    hwm_close: bool = False         # disabled: was closing every winning trade at 0.00 before target
     hwm_r: float = 0.5              # require 0.5R of profit before HWM fires (avoids scratching noise)
 
     # --- Position management ---
