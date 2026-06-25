@@ -30,7 +30,7 @@ class AutoTraderConfig:
                                        # resets automatically next session. 0 = disabled.
 
     # --- Entry filters ---
-    min_confidence: float = 0.65    # minimum intraday signal confidence (0–1 scale)
+    min_confidence: float = 0.70    # minimum intraday signal confidence (0–1 scale)
     max_spread_pips: float = 2.0    # skip pair if live spread exceeds this
     session_filter: bool = True     # only trade during London or NY sessions
     h1_trend_filter: bool = False   # OFF: backtest proved harmful
@@ -113,8 +113,8 @@ class AutoTraderConfig:
     atr_expansion_lookback: int = 20        # number of M5 bars to average ATR over for the check
 
     # --- Universe ---
-    # EUR_JPY + GBP_JPY only. EUR_USD backtest Calmar 2.36 vs 3.83 without it.
-    # Single session win (+$779) was an outlier — 5000-bar data is conclusive.
+    # EUR/JPY: 41% WR, Calmar 1.03 — generated all EMA P&L in the 5000-bar backtest.
+    # EUR/USD and GBP/JPY were net break-even on the same period; removed.
     pairs: list[str] = field(default_factory=lambda: [
-        "EUR_USD", "EUR_JPY", "GBP_JPY",
+        "EUR_JPY",
     ])

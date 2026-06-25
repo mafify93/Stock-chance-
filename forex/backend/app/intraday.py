@@ -22,7 +22,8 @@ import numpy as np
 import pandas as pd
 
 from . import pips
-from .indicators import ema, rsi
+from .indicators import adx as adx_indicator
+from .indicators import ema, macd as macd_indicator, rsi, stochastic_oscillator
 from .sessions import MarketSession, get_market_session
 
 
@@ -201,6 +202,56 @@ def compute_day_signal(pair: str, df: pd.DataFrame) -> DaySignalResult:
             elif price_change < 0:
                 votes.append((-0.5, 0.8, "Tick volume just spiked on a down move - strong selling pressure right now"))
 
+    # --- Stochastic K/D crossover — timing confirmation ---------------------
+    # K crossing above D from below signals the start of upside momentum;
+    # K crossing below D from above signals the start of downside momentum.
+    # Only vote when K and D are meaningfully separated (≥ 5 points); near-equal
+    # values mean the oscillator is flat/converging — not a directional signal.
+    if len(session_df) >= 17:
+        try:
+            stoch = stochastic_oscillator(session_df, k_period=14, d_period=3)
+            sk = float(stoch["k"].iloc[-1])
+            sd = float(stoch["d"].iloc[-1])
+            prev_sk = float(stoch["k"].iloc[-2]) if not np.isnan(stoch["k"].iloc[-2]) else sk
+            prev_sd = float(stoch["d"].iloc[-2]) if not np.isnan(stoch["d"].iloc[-2]) else sd
+            if not (np.isnan(sk) or np.isnan(sd)) and abs(sk - sd) >= 5:
+                k_crossed_up = prev_sk <= prev_sd and sk > sd
+                k_crossed_down = prev_sk >= prev_sd and sk < sd
+                if k_crossed_up and sk < 75:
+                    votes.append((0.85, 1.2, f"Stochastic K crossed above D ({sk:.0f}) — momentum turning bullish"))
+                elif k_crossed_down and sk > 25:
+                    votes.append((-0.85, 1.2, f"Stochastic K crossed below D ({sk:.0f}) — momentum turning bearish"))
+                elif sk > sd:
+                    votes.append((0.35, 0.7, f"Stochastic bullish ({sk:.0f} > {sd:.0f})"))
+                else:
+                    votes.append((-0.35, 0.7, f"Stochastic bearish ({sk:.0f} < {sd:.0f})"))
+        except Exception:
+            pass
+
+    # --- MACD histogram direction — momentum acceleration --------------------
+    # Histogram expanding (getting larger in magnitude) means momentum is
+    # accelerating in that direction, which is a high-probability continuation signal.
+    # Skip when the histogram is near-zero (< 1e-5): the series hasn't diverged
+    # enough to be meaningful (common on very linear / low-volatility data).
+    if len(session_df) >= 30:
+        try:
+            macd_data = macd_indicator(session_df["Close"])
+            hist = macd_data["hist"].dropna()
+            if len(hist) >= 2:
+                curr_h = float(hist.iloc[-1])
+                prev_h = float(hist.iloc[-2])
+                if abs(curr_h) >= 1e-5:
+                    if curr_h > 0 and curr_h > prev_h:
+                        votes.append((0.70, 0.9, "MACD histogram expanding positive — momentum accelerating up"))
+                    elif curr_h < 0 and curr_h < prev_h:
+                        votes.append((-0.70, 0.9, "MACD histogram expanding negative — momentum accelerating down"))
+                    elif curr_h > 0:
+                        votes.append((0.30, 0.7, "MACD histogram positive"))
+                    else:
+                        votes.append((-0.30, 0.7, "MACD histogram negative"))
+        except Exception:
+            pass
+
     if not votes:
         raise ValueError(f"Not enough intraday signal data for {pips.display(pair)} yet")
 
@@ -214,6 +265,20 @@ def compute_day_signal(pair: str, df: pd.DataFrame) -> DaySignalResult:
         action = "DAY_SELL"
     else:
         action = "DAY_HOLD"
+
+    # ADX gate: ADX < 15 means the market is ranging — EMA crossovers are noise.
+    # Compute from the FULL df so the EWM has enough history to stabilise.
+    # A score-gated approach (just suppress entries) is safer than a hard HOLD
+    # because it lets ICT strategies still fire; only the EMA path uses this.
+    if action != "DAY_HOLD":
+        try:
+            adx_series = adx_indicator(df, 14)
+            adx_val = adx_series.dropna()
+            if len(adx_val) > 0 and float(adx_val.iloc[-1]) < 15:
+                action = "DAY_HOLD"
+                score = 0.0
+        except Exception:
+            pass
 
     confidence = round(min(100.0, abs(score) * 100 + 10), 1)
     reasons = [r for _, _, r in votes]
