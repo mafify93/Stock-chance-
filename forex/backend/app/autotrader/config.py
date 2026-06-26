@@ -91,8 +91,8 @@ class AutoTraderConfig:
     # crossovers are pure ranging-market noise. Restricting EMA to the two
     # genuine momentum windows cuts eligible bars by ~60% while keeping the
     # trades that actually follow through.
-    ema_session_window: bool = True  # only allow EMA fallback 07:00–09:30 UTC (London open)
-                                     # and 13:30–15:30 UTC (NY open momentum)
+    ema_session_window: bool = False  # backtest proved harmful — cuts 75% of trades and drops
+                                      # WR from 61% → 40%; session_filter alone is sufficient
 
     # --- NY open momentum alignment ---
     use_ny_open_momentum_filter: bool = True  # during 13:00–16:00 UTC, only take EMA entries
