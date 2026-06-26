@@ -782,14 +782,20 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
 
     if day_sig is None:
         if not cfg.use_ema_fallback:
+            log.info(f"AutoTrader {pair}: no ICT signal this scan (EMA fallback disabled)")
             return  # EMA fallback disabled — ICT strategies only
 
         # EMA session window: restrict fallback to genuine momentum windows only.
         if cfg.ema_session_window:
             ema_min = now.hour * 60 + now.minute
-            in_london_open = 7 * 60 <= ema_min < 10 * 60 + 30
-            in_ny_open = 13 * 60 + 30 <= ema_min < 16 * 60 + 30
+            in_london_open = 7 * 60 <= ema_min < 9 * 60 + 30
+            in_ny_open = 13 * 60 + 30 <= ema_min < 15 * 60 + 30
             if not (in_london_open or in_ny_open):
+                log.info(
+                    f"AutoTrader {pair}: EMA skipped — outside session windows "
+                    f"(now {now.hour:02d}:{now.minute:02d} UTC; "
+                    f"London 07:00–09:30, NY 13:30–15:30)"
+                )
                 return
 
         # Hard time gate (off by default — too broad, removes good trades).
@@ -842,6 +848,10 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
                 log.debug(f"AutoTrader {pair}: NY momentum filter failed (non-fatal): {exc}")
 
     if day_sig.action == "DAY_HOLD":
+        log.info(
+            f"AutoTrader {pair}: HOLD — signal={day_sig.action} "
+            f"conf={day_sig.confidence:.0f}% [{signal_type}]"
+        )
         with state._lock:
             state.pending_signals.pop(pair, None)
         return
@@ -859,9 +869,9 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
             with state._lock:
                 state.pending_signals[pair] = day_sig.action
             if prev != day_sig.action:
-                log.debug(
-                    f"AutoTrader {pair}: {day_sig.action} — waiting for confirmation "
-                    f"(previous: {prev or 'none'})"
+                log.info(
+                    f"AutoTrader {pair}: WAIT — {day_sig.action} conf={day_sig.confidence:.0f}% "
+                    f"waiting for 2nd scan confirmation (prev: {prev or 'none'})"
                 )
                 return
             with state._lock:
@@ -897,7 +907,7 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
         instr = pip_module.normalize(pair)
         spread_pips = float((pricing.get(instr) or {}).get("spread_pips") or 0.0)
         if spread_pips > cfg.max_spread_pips:
-            log.debug(f"AutoTrader {pair}: spread {spread_pips:.1f} pips > max {cfg.max_spread_pips}")
+            log.info(f"AutoTrader {pair}: SKIP — spread {spread_pips:.1f} pips > max {cfg.max_spread_pips:.1f}")
             return
     except Exception:
         pass
@@ -929,9 +939,8 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
         win_prob = (multiplier - 0.4) / 1.2  # invert the multiplier formula
         adjusted_confidence = day_sig.confidence * multiplier
         if win_prob < cfg.ai_min_win_prob:
-            log.debug(
-                f"AutoTrader {pair}: AI learner suppressed entry — "
-                f"estimated win prob {win_prob:.0%} < min {cfg.ai_min_win_prob:.0%}"
+            log.info(
+                f"AutoTrader {pair}: SKIP — AI learner win prob {win_prob:.0%} < min {cfg.ai_min_win_prob:.0%}"
             )
             return
         if multiplier != 1.0:
@@ -946,9 +955,9 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
 
     # ── Confidence gate ───────────────────────────────────────────────────────
     if day_sig.confidence < cfg.min_confidence * 100:
-        log.debug(
-            f"AutoTrader {pair}: confidence {day_sig.confidence:.0f}% < "
-            f"threshold {cfg.min_confidence * 100:.0f}%"
+        log.info(
+            f"AutoTrader {pair}: SKIP — confidence {day_sig.confidence:.0f}% < "
+            f"threshold {cfg.min_confidence * 100:.0f}% [{signal_type}]"
         )
         return
 

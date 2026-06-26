@@ -308,7 +308,11 @@ async def backtest(req: BacktestRequest):
             setattr(cfg, field, val)
 
     pairs = req.pairs or cfg.pairs
-    bars = max(100, min(req.bars, 5000))  # OANDA caps a single candle request
+    # Cap bars at 3000 (≈10 trading days): beyond this the computation time on
+    # a shared Render instance exceeds mobile client timeouts without adding
+    # meaningful statistical sample size. 5000-bar backtests can be run by
+    # lowering bars in the app settings.
+    bars = max(100, min(req.bars, 3000))
 
     candles_by_pair: dict = {}
     h1_by_pair: dict = {}
@@ -335,7 +339,19 @@ async def backtest(req: BacktestRequest):
             except Exception:
                 pass  # H1 is optional; the filter degrades gracefully without it
 
-    await asyncio.gather(*[_load_pair(p) for p in pairs])
+    # 55-second hard deadline: OANDA fetch (≤20s) + compute (≤25s) + buffer.
+    # Returns a clear 504 rather than silently hanging until the mobile client
+    # times out and shows a generic network error.
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(*[_load_pair(p) for p in pairs]),
+            timeout=55,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            504,
+            detail="Backtest timed out fetching candles. Try fewer bars or check your connection.",
+        )
 
     if not candles_by_pair:
         raise HTTPException(
@@ -343,12 +359,21 @@ async def backtest(req: BacktestRequest):
         )
 
     spread_by_pair = {p: req.spread_pips for p in candles_by_pair}
-    result = await asyncio.to_thread(
-        run_backtest, candles_by_pair, cfg, spread_by_pair, req.starting_nav,
-        h1_by_pair or None,
-        req.slippage_pips,
-        req.walk_forward_pct,
-    )
+    try:
+        result = await asyncio.wait_for(
+            asyncio.to_thread(
+                run_backtest, candles_by_pair, cfg, spread_by_pair, req.starting_nav,
+                h1_by_pair or None,
+                req.slippage_pips,
+                req.walk_forward_pct,
+            ),
+            timeout=55,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            504,
+            detail="Backtest computation timed out. Try reducing the number of bars.",
+        )
     result["errors"] = errors
     result["bars_per_pair"] = bars
     return result
@@ -437,3 +462,86 @@ async def emergency_close():
 async def learner_stats():
     """Return the AI learner's current state: win rate, model activation, feature importances."""
     return trade_learner.stats()
+
+
+@router.get("/signal")
+async def current_signal():
+    """Return the current signal for each configured pair WITHOUT placing a trade.
+
+    Useful for diagnosing why trades aren't firing: shows what signal the engine
+    is computing, its confidence, and which filter would reject it.
+    """
+    from datetime import date, timezone
+    from ..autotrader.engine import _evaluate_pair as _real_eval  # noqa: F401 — not used directly
+    from ..intraday import compute_day_signal
+    from ..providers import oanda as _oanda
+    from ..providers import pip as pip_module
+    from ..autotrader.engine import bot_state as _state
+
+    state = _state
+    if not state.token or not state.account_id:
+        raise HTTPException(400, detail="Bot is not running — start it first to provide credentials.")
+
+    cfg = state.config
+    now = datetime.now(timezone.utc)
+    ema_min = now.hour * 60 + now.minute
+    in_london_open = 7 * 60 <= ema_min < 9 * 60 + 30
+    in_ny_open = 13 * 60 + 30 <= ema_min < 15 * 60 + 30
+    ema_window_open = in_london_open or in_ny_open
+
+    results = []
+    for pair in cfg.pairs:
+        entry: dict = {"pair": pair, "time_utc": now.strftime("%H:%M"), "filters": []}
+        try:
+            df = await asyncio.to_thread(
+                _oanda.get_candles, pair, state.token, "M5", 100, state.base_url
+            )
+            if len(df) < 20:
+                entry["error"] = f"Only {len(df)} M5 bars returned"
+                results.append(entry)
+                continue
+
+            sig = compute_day_signal(pair, df)
+            entry["signal"] = sig.action
+            entry["confidence"] = round(sig.confidence, 1)
+            entry["stop_pips"] = sig.stop_pips
+
+            # Report which filters would fire
+            if cfg.ema_session_window and not ema_window_open:
+                entry["filters"].append(
+                    f"EMA_WINDOW_CLOSED (now {now.strftime('%H:%M')} UTC; open 07:00-09:30, 13:30-15:30)"
+                )
+            if sig.action == "DAY_HOLD":
+                entry["filters"].append("SIGNAL_IS_HOLD")
+            if sig.confidence < cfg.min_confidence * 100:
+                entry["filters"].append(
+                    f"CONFIDENCE_LOW ({sig.confidence:.0f}% < {cfg.min_confidence * 100:.0f}%)"
+                )
+
+            try:
+                pricing = await asyncio.to_thread(
+                    _oanda.get_pricing, [pair], state.token, state.account_id, state.base_url
+                )
+                instr = pip_module.normalize(pair)
+                spread_pips = float((pricing.get(instr) or {}).get("spread_pips") or 0.0)
+                entry["spread_pips"] = round(spread_pips, 2)
+                if spread_pips > cfg.max_spread_pips:
+                    entry["filters"].append(
+                        f"SPREAD_TOO_HIGH ({spread_pips:.1f} pips > max {cfg.max_spread_pips:.1f})"
+                    )
+            except Exception as exc:
+                entry["spread_error"] = str(exc)
+
+            entry["would_trade"] = (
+                len(entry["filters"]) == 0
+                and sig.action != "DAY_HOLD"
+            )
+        except Exception as exc:
+            entry["error"] = str(exc)
+        results.append(entry)
+
+    return {
+        "utc_time": now.strftime("%Y-%m-%d %H:%M:%S"),
+        "ema_window_open": ema_window_open,
+        "pairs": results,
+    }
