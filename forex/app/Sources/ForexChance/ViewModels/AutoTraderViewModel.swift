@@ -39,7 +39,13 @@ final class AutoTraderViewModel: ObservableObject {
     @Published var backtestSpreadPips: Double = 1.0
     @Published var backtestStartingNav: Double = 1000.0
     @Published var backtestPairs: Set<String> = ["EUR_USD", "EUR_JPY", "GBP_JPY"]
-    static let availableBacktestPairs = ["EUR_USD", "EUR_JPY", "GBP_JPY", "GBP_USD", "USD_JPY"]
+    static let availableBacktestPairs = [
+        "EUR_USD", "EUR_JPY", "GBP_JPY", "GBP_USD", "USD_JPY",
+        // JPY crosses that share EUR/JPY's clean intraday-trend personality —
+        // the most likely to also carry the momentum edge. Run each ALONE in the
+        // backtest and only promote the ones that pass (positive PF + low DD).
+        "AUD_JPY", "CAD_JPY", "NZD_JPY", "CHF_JPY",
+    ]
 
     private var refreshTask: Task<Void, Never>?
     private let client: APIClient
