@@ -94,6 +94,16 @@ class AutoTraderConfig:
     ema_session_window: bool = False  # backtest proved harmful — cuts 75% of trades and drops
                                       # WR from 61% → 40%; session_filter alone is sufficient
 
+    # --- Per-pair active trading hours (UTC) ---
+    # When set (via a pair's override profile), restricts that pair to its genuine
+    # high-liquidity directional hours instead of the generic London+NY window.
+    # This is the single biggest per-pair edge driver: each currency trends during
+    # its own financial centre's session. Trading USD/JPY during dead London hours
+    # (when it just chops) is what produced its 7% win rate. Format: list of
+    # [start_hour, end_hour) UTC windows, e.g. [[13, 16]]. None = no restriction
+    # beyond the standard session_filter.
+    active_hours_utc: list | None = None
+
     # --- NY open momentum alignment ---
     use_ny_open_momentum_filter: bool = True  # during 13:00–16:00 UTC, only take EMA entries
                                               # that align with the actual NY session direction
@@ -137,37 +147,50 @@ class AutoTraderConfig:
     pair_overrides: dict = field(default_factory=lambda: {
         # GBP/JPY: most volatile major-cross. Big trends but whippy/news-spiky
         # with naturally wider spreads — give stops more room, tolerate spread.
+        # Active hours: London open is when GBP and JPY desks overlap and the
+        # pair makes its cleanest directional moves; it chops the rest of the day.
         "GBP_JPY": {
             "min_confidence": 0.70,
             "rr_ratio": 2.0,
             "min_stop_pips": 15.0,
             "max_stop_pips": 40.0,
             "max_spread_pips": 3.5,
+            "active_hours_utc": [[7, 11]],          # London open
         },
         # EUR/USD: lowest volatility, tightest spread, ranges more than it trends.
         # Tighter stops to match its smaller daily range, tight spread gate.
+        # Active hours: the London–NY overlap (12:00–16:00 UTC) is the only window
+        # EUR/USD reliably trends; outside it the pair ranges and momentum logic
+        # whipsaws (the 22% WR came from trading it all day).
         "EUR_USD": {
             "min_confidence": 0.68,
             "rr_ratio": 2.0,
             "min_stop_pips": 8.0,
             "max_stop_pips": 22.0,
             "max_spread_pips": 1.5,
+            "active_hours_utc": [[12, 16]],         # London–NY overlap
         },
         # GBP/USD ("cable"): moderate volatility, trends well at London/NY open.
+        # Two genuine momentum windows: London open and the NY-overlap morning.
         "GBP_USD": {
             "min_confidence": 0.68,
             "rr_ratio": 2.0,
             "min_stop_pips": 10.0,
             "max_stop_pips": 28.0,
             "max_spread_pips": 2.0,
+            "active_hours_utc": [[7, 10], [13, 16]],  # London open + NY overlap
         },
-        # USD/JPY: trends smoothly, tight spread, moderate range.
+        # USD/JPY: trends smoothly, tight spread, moderate range. JPY trades on
+        # the Tokyo session and USD on the NY session, so its directional moves
+        # cluster at the Tokyo open and the NY morning — NOT during London, where
+        # one-size-fits-all timing trapped it into a 7% win rate.
         "USD_JPY": {
             "min_confidence": 0.68,
             "rr_ratio": 2.0,
             "min_stop_pips": 10.0,
             "max_stop_pips": 28.0,
             "max_spread_pips": 1.8,
+            "active_hours_utc": [[0, 3], [13, 16]],   # Tokyo open + NY morning
         },
     })
 
@@ -187,3 +210,22 @@ class AutoTraderConfig:
         valid = {f.name for f in dataclasses.fields(self)}
         clean = {k: v for k, v in overrides.items() if k in valid}
         return dataclasses.replace(self, **clean)
+
+    def in_active_hours(self, hour_utc: int) -> bool:
+        """True if `hour_utc` falls in one of this config's active_hours_utc
+        windows. Returns True when no windows are configured (no restriction).
+
+        Each window is [start, end) in UTC hours. Windows may wrap midnight
+        (start > end), e.g. [22, 2] covers 22:00–01:59.
+        """
+        windows = self.active_hours_utc
+        if not windows:
+            return True
+        for start, end in windows:
+            if start <= end:
+                if start <= hour_utc < end:
+                    return True
+            else:  # wraps midnight
+                if hour_utc >= start or hour_utc < end:
+                    return True
+        return False

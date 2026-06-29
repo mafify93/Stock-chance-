@@ -556,12 +556,22 @@ async def scan_and_trade() -> None:
     cfg = state.config
 
     # ── Session gate ─────────────────────────────────────────────────────────
+    # Coarse scan-level gate only: proceed if the generic London/NY session is
+    # open OR any configured pair has its own active-hours window covering this
+    # hour (e.g. USD/JPY's Tokyo window, which lies outside London/NY). The
+    # precise per-pair enforcement happens in _evaluate_pair.
     if cfg.session_filter:
         session = get_market_session(now)
-        if session.status != "open":
-            return
-        if not (set(session.active_sessions) & {"London", "New York"}):
-            log.debug("AutoTrader: outside London/NY session, scan skipped")
+        generic_open = session.status == "open" and bool(
+            set(session.active_sessions) & {"London", "New York"}
+        )
+        any_pair_active = any(
+            state.config.resolved_for(p).active_hours_utc
+            and state.config.resolved_for(p).in_active_hours(now.hour)
+            for p in cfg.pairs
+        )
+        if not generic_open and not any_pair_active:
+            log.debug("AutoTrader: outside all session windows, scan skipped")
             return
 
     # ── Rollover & news blackout gates (no new entries) ──────────────────────
@@ -670,6 +680,24 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
     # Apply this pair's tuning profile so each pair trades with stop clamps,
     # confidence threshold, R:R and spread tolerance suited to its volatility.
     cfg = state.config.resolved_for(pair)
+
+    # ── Per-pair active-hours gate ────────────────────────────────────────────
+    # Pairs with a research-based active_hours_utc window trade only during their
+    # own centre's high-liquidity session. Pairs without one fall back to the
+    # generic London/NY session filter. Mirrors the backtest gate exactly.
+    if cfg.active_hours_utc:
+        if not cfg.in_active_hours(now.hour):
+            log.info(
+                f"AutoTrader {pair}: outside active hours {cfg.active_hours_utc} "
+                f"(now {now.hour:02d}:{now.minute:02d} UTC)"
+            )
+            return
+    elif cfg.session_filter:
+        session = get_market_session(now)
+        if session.status != "open" or not (
+            set(session.active_sessions) & {"London", "New York"}
+        ):
+            return
 
     # ── M5 candles ───────────────────────────────────────────────────────────
     try:

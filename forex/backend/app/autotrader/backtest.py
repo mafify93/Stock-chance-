@@ -253,7 +253,14 @@ def simulate_pair(
             continue
 
         # ── Session gate (mirror the live engine) ─────────────────────────────
-        if cfg.session_filter:
+        # Per-pair active hours (research-based) take precedence: each currency
+        # trends during its own centre's session. Falls back to the generic
+        # London/NY filter for pairs without an active_hours_utc profile.
+        if cfg.active_hours_utc:
+            if not cfg.in_active_hours(bar_time.hour):
+                i += 1
+                continue
+        elif cfg.session_filter:
             session = get_market_session(bar_time.to_pydatetime())
             if session.status != "open" or not (
                 set(session.active_sessions) & {"London", "New York"}
