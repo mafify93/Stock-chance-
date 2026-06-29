@@ -179,6 +179,16 @@ struct BacktestTradeModel: Codable, Identifiable {
     }
 }
 
+struct WalkForwardModel: Codable {
+    var trainPct: Int
+    var testPct: Int
+    var startingNav: Double
+    var endingNav: Double
+    var overall: BacktestStatsModel
+    var perPair: [BacktestStatsModel]?
+    var tradeCount: Int
+}
+
 struct BacktestResult: Codable {
     var startingNav: Double
     var endingNav: Double
@@ -189,6 +199,7 @@ struct BacktestResult: Codable {
     var trades: [BacktestTradeModel]
     var errors: [String]
     var barsPerPair: Int
+    var walkForward: WalkForwardModel?
 
     var returnPct: Double {
         guard startingNav > 0 else { return 0 }
