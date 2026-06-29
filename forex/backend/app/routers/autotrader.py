@@ -484,18 +484,17 @@ async def current_signal():
     Useful for diagnosing why trades aren't firing: shows what signal the engine
     is computing, its confidence, and which filter would reject it.
     """
-    from datetime import date, timezone
-    from ..autotrader.engine import _evaluate_pair as _real_eval  # noqa: F401 — not used directly
+    from datetime import timezone
     from ..intraday import compute_day_signal
     from ..providers import oanda as _oanda
-    from ..providers import pip as pip_module
-    from ..autotrader.engine import bot_state as _state
+    from .. import pips as pip_module
+    from ..autotrader.state import bot_state as _state
 
     state = _state
     if not state.token or not state.account_id:
         raise HTTPException(400, detail="Bot is not running — start it first to provide credentials.")
 
-    cfg = state.config
+    base_cfg = state.config
     now = datetime.now(timezone.utc)
     ema_min = now.hour * 60 + now.minute
     in_london_open = 7 * 60 <= ema_min < 9 * 60 + 30
@@ -503,7 +502,8 @@ async def current_signal():
     ema_window_open = in_london_open or in_ny_open
 
     results = []
-    for pair in cfg.pairs:
+    for pair in base_cfg.pairs:
+        cfg = base_cfg.resolved_for(pair)  # apply per-pair profile
         entry: dict = {"pair": pair, "time_utc": now.strftime("%H:%M"), "filters": []}
         try:
             df = await asyncio.to_thread(
@@ -520,6 +520,10 @@ async def current_signal():
             entry["stop_pips"] = sig.stop_pips
 
             # Report which filters would fire
+            if cfg.active_hours_utc and not cfg.in_active_hours(now.hour):
+                entry["filters"].append(
+                    f"OUTSIDE_ACTIVE_HOURS (now {now.hour:02d} UTC; windows {cfg.active_hours_utc})"
+                )
             if cfg.ema_session_window and not ema_window_open:
                 entry["filters"].append(
                     f"EMA_WINDOW_CLOSED (now {now.strftime('%H:%M')} UTC; open 07:00-09:30, 13:30-15:30)"
