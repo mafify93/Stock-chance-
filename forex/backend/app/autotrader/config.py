@@ -113,10 +113,76 @@ class AutoTraderConfig:
     atr_expansion_lookback: int = 20        # number of M5 bars to average ATR over for the check
 
     # --- Universe ---
-    # EUR/JPY: 41% WR, Calmar 4.08 — sole live pair.
-    # GBP/JPY tested at 28% WR (net-negative risk-adjusted); USD/JPY untested.
-    # Adding weaker pairs dilutes the equity curve and raises drawdown without
-    # proportional reward — keep single best-edge pair only.
+    # EUR/JPY: 41% WR, Calmar 4.08 — proven primary pair.
+    # Additional pairs are tuned via per-pair profiles below and must each pass
+    # a standalone backtest (positive PF + Calmar) before being added here.
     pairs: list[str] = field(default_factory=lambda: [
         "EUR_JPY",
     ])
+
+    # --- Per-pair tuning profiles ---
+    # The global defaults above are tuned for EUR/JPY. Other pairs have different
+    # volatility, spread, and trend personality, so running one-size-fits-all
+    # settings on them fails (GBP/JPY scored 28% WR that way). Each entry here
+    # overrides only the listed fields for that pair; anything omitted falls back
+    # to the global default. Resolve with `cfg.resolved_for(pair)`.
+    #
+    # These are *researched starting points*, not validated numbers — backtest
+    # each pair ALONE in the app and only add a pair to `pairs` once it shows a
+    # positive profit factor and Calmar on its own.
+    pair_overrides: dict = field(default_factory=lambda: {
+        # GBP/JPY: most volatile major-cross. Big clean trends but whippy and
+        # news-spiky, with naturally wider spreads. Demand higher conviction to
+        # skip the chop, give stops more room, and tolerate its wider spread.
+        "GBP_JPY": {
+            "min_confidence": 0.78,
+            "rr_ratio": 2.0,
+            "min_stop_pips": 15.0,
+            "max_stop_pips": 40.0,
+            "max_spread_pips": 3.5,
+        },
+        # EUR/USD: lowest volatility, tightest spread, ranges more than it trends.
+        # Tighter stops to match its smaller daily range, tight spread gate, and
+        # a higher confidence bar because EMA crossovers whipsaw in ranges.
+        "EUR_USD": {
+            "min_confidence": 0.75,
+            "rr_ratio": 2.0,
+            "min_stop_pips": 8.0,
+            "max_stop_pips": 22.0,
+            "max_spread_pips": 1.5,
+        },
+        # GBP/USD ("cable"): moderate volatility, trends well at London/NY open.
+        # Between EUR/USD and the JPY crosses in stop sizing.
+        "GBP_USD": {
+            "min_confidence": 0.75,
+            "rr_ratio": 2.0,
+            "min_stop_pips": 10.0,
+            "max_stop_pips": 28.0,
+            "max_spread_pips": 2.0,
+        },
+        # USD/JPY: trends smoothly, tight spread, moderate range.
+        "USD_JPY": {
+            "min_confidence": 0.75,
+            "rr_ratio": 2.0,
+            "min_stop_pips": 10.0,
+            "max_stop_pips": 28.0,
+            "max_spread_pips": 1.8,
+        },
+    })
+
+    def resolved_for(self, pair: str) -> "AutoTraderConfig":
+        """Return a copy of this config with the pair's overrides applied.
+
+        Fields not listed in the pair's override entry keep the global value.
+        Pairs with no entry get an unmodified copy. Used by both the live engine
+        and the backtester so each pair trades with settings suited to its
+        volatility/spread personality instead of one-size-fits-all values.
+        """
+        import dataclasses
+
+        overrides = (self.pair_overrides or {}).get(pair)
+        if not overrides:
+            return self
+        valid = {f.name for f in dataclasses.fields(self)}
+        clean = {k: v for k, v in overrides.items() if k in valid}
+        return dataclasses.replace(self, **clean)

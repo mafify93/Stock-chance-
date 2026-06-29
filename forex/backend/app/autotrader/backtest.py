@@ -167,6 +167,10 @@ def simulate_pair(
     H1 data is supplied, entries that fight the H1 trend are skipped — exactly
     as the live engine does.
     """
+    # Apply this pair's tuning profile (stop clamps, confidence, R:R, spread)
+    # so the backtest mirrors how the live engine trades each pair.
+    cfg = cfg.resolved_for(pair)
+
     trades: list[BacktestTrade] = []
     nav = starting_nav
     risk_scale = 1.0

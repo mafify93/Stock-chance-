@@ -667,7 +667,9 @@ async def scan_and_trade() -> None:
 async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
     """Evaluate one pair and place a trade if all conditions are met."""
     state = bot_state
-    cfg = state.config
+    # Apply this pair's tuning profile so each pair trades with stop clamps,
+    # confidence threshold, R:R and spread tolerance suited to its volatility.
+    cfg = state.config.resolved_for(pair)
 
     # ── M5 candles ───────────────────────────────────────────────────────────
     try:
