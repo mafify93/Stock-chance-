@@ -1,30 +1,30 @@
 import SwiftUI
 
-/// A cool, focused "trading terminal" visual theme: deep navy backgrounds,
-/// a teal/cyan accent and high-contrast text - tuned to read like a
-/// professional FX desk while staying calm on the eye during long sessions.
+/// A luxury "private wealth desk" visual theme: deep obsidian-black backgrounds,
+/// a champagne-gold accent and warm ivory text - designed to read as premium
+/// and high-trust, the kind of finish you'd want a funding evaluator to see.
 enum Theme {
     // MARK: - Palette
 
-    static let background = Color(red: 0.055, green: 0.075, blue: 0.114)        // deep navy
-    static let backgroundElevated = Color(red: 0.094, green: 0.122, blue: 0.176)
-    static let card = Color(red: 0.106, green: 0.137, blue: 0.196)             // slate card
-    static let cardBorder = Color(red: 0.196, green: 0.243, blue: 0.314)
+    static let background = Color(red: 0.039, green: 0.043, blue: 0.051)        // obsidian black
+    static let backgroundElevated = Color(red: 0.071, green: 0.078, blue: 0.090)
+    static let card = Color(red: 0.094, green: 0.102, blue: 0.118)             // graphite card
+    static let cardBorder = Color(red: 0.290, green: 0.255, blue: 0.180)        // faint bronze edge
 
-    static let accent = Color(red: 0.149, green: 0.733, blue: 0.706)           // teal
-    static let accentBright = Color(red: 0.243, green: 0.851, blue: 0.808)
+    static let accent = Color(red: 0.792, green: 0.655, blue: 0.396)           // champagne gold
+    static let accentBright = Color(red: 0.925, green: 0.812, blue: 0.576)      // bright gold
 
-    static let profit = Color(red: 0.220, green: 0.804, blue: 0.490)           // green
-    static let loss = Color(red: 0.937, green: 0.353, blue: 0.353)             // red
-    static let neutral = Color(red: 0.612, green: 0.659, blue: 0.722)
+    static let profit = Color(red: 0.298, green: 0.776, blue: 0.553)           // refined emerald
+    static let loss = Color(red: 0.851, green: 0.337, blue: 0.353)             // muted crimson
+    static let neutral = Color(red: 0.639, green: 0.620, blue: 0.580)          // warm gray
 
-    static let textPrimary = Color(red: 0.929, green: 0.945, blue: 0.969)
-    static let textSecondary = Color(red: 0.612, green: 0.659, blue: 0.722)
+    static let textPrimary = Color(red: 0.961, green: 0.949, blue: 0.922)       // warm ivory
+    static let textSecondary = Color(red: 0.643, green: 0.624, blue: 0.584)     // muted champagne-gray
 
     static let backgroundGradient = LinearGradient(
         colors: [
-            Color(red: 0.063, green: 0.086, blue: 0.133),
-            Color(red: 0.039, green: 0.055, blue: 0.090),
+            Color(red: 0.063, green: 0.067, blue: 0.078),
+            Color(red: 0.027, green: 0.029, blue: 0.035),
         ],
         startPoint: .top,
         endPoint: .bottom
@@ -68,10 +68,21 @@ private struct CardModifier: ViewModifier {
                     .fill(Theme.card)
             )
             .overlay(
+                // Subtle top-lit gold edge for a brushed-metal, premium feel.
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .strokeBorder(Theme.cardBorder.opacity(0.7), lineWidth: 1)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [
+                                Theme.accent.opacity(0.35),
+                                Theme.cardBorder.opacity(0.35),
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ),
+                        lineWidth: 1
+                    )
             )
-            .shadow(color: .black.opacity(0.25), radius: 10, x: 0, y: 4)
+            .shadow(color: .black.opacity(0.45), radius: 14, x: 0, y: 6)
     }
 }
 
