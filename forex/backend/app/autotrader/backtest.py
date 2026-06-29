@@ -450,27 +450,36 @@ def simulate_pair(
         while j < n:
             hi = float(df["High"].iloc[j])
             lo = float(df["Low"].iloc[j])
-            # Arm breakeven BEFORE checking stop_hit — if price reaches
-            # be_trigger earlier in the bar than it reaches the original stop,
-            # the breakeven order fires first and the stop check should use the
-            # updated (tighter) be_stop rather than the original stop.
-            if cfg.breakeven_stop and not armed:
-                if (is_long and hi >= be_trigger) or (not is_long and lo <= be_trigger):
+            # Worst-case intra-bar ordering (consistent with the both-touched
+            # rule): if the ORIGINAL stop is within this bar's range while
+            # breakeven is not yet armed, assume the adverse move happened first
+            # and the original stop filled for a full loss — do NOT optimistically
+            # arm breakeven and downgrade it to a +1-pip scratch. Only once a
+            # PRIOR bar has armed breakeven does the tighter be_stop apply.
+            if not armed:
+                orig_stop_hit = (lo <= cur_stop) if is_long else (hi >= cur_stop)
+                if orig_stop_hit:
+                    outcome = "stop"
+                    exit_price = (cur_stop - slip) if is_long else (cur_stop + slip)
+                    exit_time = df.index[j]
+                    break
+                # Original stop survived this bar — now it's safe to arm breakeven.
+                if cfg.breakeven_stop and (
+                    (is_long and hi >= be_trigger) or (not is_long and lo <= be_trigger)
+                ):
                     armed = True
                     cur_stop = be_stop
+
             if is_long:
                 stop_hit = lo <= cur_stop
                 tgt_hit = hi >= target_price
             else:
                 stop_hit = hi >= cur_stop
                 tgt_hit = lo <= target_price
+            # Worst-case both-touched: stop is checked before target.
             if stop_hit:
                 outcome = "breakeven" if armed else "stop"
-                # Stop orders fill at market — apply adverse slippage
-                if is_long:
-                    exit_price = cur_stop - slip
-                else:
-                    exit_price = cur_stop + slip
+                exit_price = (cur_stop - slip) if is_long else (cur_stop + slip)
                 exit_time = df.index[j]
                 break
             if tgt_hit:
