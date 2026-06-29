@@ -76,7 +76,7 @@ struct BacktestView: View {
             }
 
             backtestSlider(label: "Spread cost (pips)", value: $vm.backtestSpreadPips, range: 0.5...3.0, step: 0.25, format: "%.1f")
-            backtestSlider(label: "Starting NAV ($)", value: $vm.backtestStartingNav, range: 200...10000, step: 200, format: "%.0f")
+            backtestSlider(label: "Starting NAV ($)", value: $vm.backtestStartingNav, range: 200...100000, step: 1000, format: "%.0f")
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("Pairs")
