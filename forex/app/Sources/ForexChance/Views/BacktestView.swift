@@ -70,7 +70,7 @@ struct BacktestView: View {
                     .font(.subheadline)
                     .foregroundColor(.white)
                 Spacer()
-                Stepper("\(vm.backtestBars)", value: $vm.backtestBars, in: 500...5000, step: 500)
+                Stepper("\(vm.backtestBars)", value: $vm.backtestBars, in: 500...6000, step: 500)
                     .fixedSize()
                     .tint(Theme.accent)
             }
