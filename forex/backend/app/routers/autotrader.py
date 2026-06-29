@@ -392,6 +392,88 @@ async def backtest(req: BacktestRequest):
     return result
 
 
+@router.post("/backtest-live")
+async def backtest_live(bars: int = 3000, walk_forward_pct: float = 0.3):
+    """Run a backtest using the RUNNING bot's stored credentials and its EXACT
+    current live config (risk %, confidence, R:R, pairs, all filters).
+
+    This is the honest "what would we actually make" test: it pulls the most
+    recent `bars` of real candles for the configured pairs and replays them
+    through the live settings, including a walk-forward out-of-sample split.
+    Starting NAV is the account's real NAV so the dollar figure is real.
+    """
+    state = bot_state
+    if not state.token or not state.account_id:
+        raise HTTPException(400, detail="Bot is not running — no stored credentials to backtest with.")
+
+    cfg = state.config            # the real, current live configuration
+    base_url = state.base_url
+    pairs = cfg.pairs
+    bars = max(100, min(bars, 3000))
+
+    # Real account NAV so the P&L is in real dollars.
+    starting_nav = 10000.0
+    try:
+        acct = await asyncio.to_thread(
+            oanda.get_account_summary, state.token, state.account_id, base_url
+        )
+        starting_nav = float(acct.get("NAV") or acct.get("balance") or 10000.0)
+    except Exception:
+        pass
+
+    candles_by_pair: dict = {}
+    h1_by_pair: dict = {}
+    errors: list[str] = []
+
+    async def _load_pair(pair: str) -> None:
+        try:
+            df = await asyncio.to_thread(
+                oanda.get_candles, pair, state.token, "M5", bars, base_url
+            )
+            if len(df) >= 50:
+                candles_by_pair[pair] = df
+            else:
+                errors.append(f"{pair}: only {len(df)} M5 bars returned, skipped")
+        except Exception as exc:
+            errors.append(f"{pair}: {exc}")
+
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(*[_load_pair(p) for p in pairs]), timeout=55
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(504, detail="Backtest timed out fetching candles.")
+
+    if not candles_by_pair:
+        raise HTTPException(502, detail=f"Could not load candles. {'; '.join(errors)}")
+
+    spread_by_pair = {p: 1.2 for p in candles_by_pair}
+    try:
+        result = await asyncio.wait_for(
+            asyncio.to_thread(
+                run_backtest, candles_by_pair, cfg, spread_by_pair, starting_nav,
+                h1_by_pair or None, 0.5, walk_forward_pct,
+            ),
+            timeout=55,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(504, detail="Backtest computation timed out.")
+
+    result["errors"] = errors
+    result["bars_per_pair"] = bars
+    result["used_live_config"] = {
+        "pairs": cfg.pairs,
+        "risk_pct": cfg.risk_pct,
+        "rr_ratio": cfg.rr_ratio,
+        "min_confidence": cfg.min_confidence,
+        "min_stop_pips": cfg.min_stop_pips,
+        "max_stop_pips": cfg.max_stop_pips,
+        "use_ai_learner": cfg.use_ai_learner,
+        "starting_nav": round(starting_nav, 2),
+    }
+    return result
+
+
 @router.post("/reset-day")
 async def reset_day():
     """Reset today's trade counter and P&L so the bot can take new entries.
