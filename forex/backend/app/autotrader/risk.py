@@ -21,13 +21,15 @@ def calculate_units(
     stop_pips: float,
     pair: str,
     spot_price: float = 1.0,
+    quote_to_usd: float | None = None,
 ) -> int:
     """Return integer unit count that risks `risk_pct` of `nav` on this trade.
 
-    `spot_price` is needed for accurate sizing of USD-base pairs (USD/JPY,
-    USD/CHF, USD/CAD) where pip value per unit = pip_size / spot. For
-    USD-quote pairs (EUR/USD, GBP/USD, etc.) the spot rate cancels and
-    pip value is constant at pip_size.
+    `nav` must be in USD. `quote_to_usd` is the USD value of one unit of the
+    pair's quote currency; supplying it makes pip-value exact for every pair,
+    including crosses (EUR/JPY etc.). Without it, cross pairs fall back to a
+    legacy approximation that under-sizes them by the cross rate — so the live
+    engine MUST pass quote_to_usd. `spot_price` is only used by that legacy path.
 
     Returns 0 if the inputs are degenerate (zero stop, zero nav, etc.).
     OANDA allows any integer unit count ≥ 1, so no rounding to lot sizes.
@@ -35,7 +37,7 @@ def calculate_units(
     if stop_pips <= 0 or nav <= 0 or risk_pct <= 0:
         return 0
     risk_amount = nav * risk_pct
-    pip_value = pip_module.pip_value_per_unit(pair, spot_price)
+    pip_value = pip_module.pip_value_per_unit(pair, spot_price, quote_to_usd)
     if pip_value <= 0:
         return 0
     raw = risk_amount / (stop_pips * pip_value)

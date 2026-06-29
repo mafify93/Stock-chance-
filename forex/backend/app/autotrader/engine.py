@@ -1049,7 +1049,30 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
     # ── Position sizing (McKay step-down applied) ─────────────────────────────
     spot = day_sig.price
     effective_risk = cfg.risk_pct * state.risk_scale
-    units = calculate_units(nav, effective_risk, stop_pips, pair, spot)
+
+    # Resolve the quote currency's USD value so pip-value (and therefore unit
+    # count) is exact for every pair, including JPY crosses like EUR/JPY. Without
+    # this, crosses are mis-sized by the cross rate (~160× too small for EUR/JPY).
+    quote_ccy = pip_module.quote_currency(pair)
+    quote_to_usd: float | None = 1.0
+    if quote_ccy == "USD":
+        quote_to_usd = 1.0
+    elif pip_module.base_currency(pair) == "USD" and spot > 0:
+        quote_to_usd = 1.0 / spot          # pair price IS USD/quote (e.g. USD_JPY)
+    else:
+        # True cross (e.g. EUR_JPY): fetch USD/quote and invert to get quote→USD.
+        try:
+            q_pair = pip_module.normalize(f"USD_{quote_ccy}")
+            q_pricing = await asyncio.to_thread(
+                oanda.get_pricing, [q_pair], state.token, state.account_id, state.base_url
+            )
+            q_mid = (q_pricing.get(q_pair) or {}).get("mid")
+            quote_to_usd = (1.0 / float(q_mid)) if q_mid and float(q_mid) > 0 else None
+        except Exception as exc:
+            log.warning(f"AutoTrader {pair}: USD/{quote_ccy} rate fetch failed, sizing may be off: {exc}")
+            quote_to_usd = None
+
+    units = calculate_units(nav, effective_risk, stop_pips, pair, spot, quote_to_usd)
     if units < 1:
         log.debug(f"AutoTrader {pair}: unit count rounded to 0, skipping")
         return
