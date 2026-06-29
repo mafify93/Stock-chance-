@@ -40,6 +40,7 @@ from .london_breakout import london_open_breakout
 from .opening_range import opening_range_breakout
 from .order_blocks import order_block_reversal
 from .silver_bullet import silver_bullet
+from .persistence import save_state
 from .risk import calculate_units
 from .state import TradeRecord, bot_state
 from . import telegram
