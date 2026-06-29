@@ -477,6 +477,23 @@ async def learner_stats():
     return trade_learner.stats()
 
 
+@router.post("/learner-reset")
+async def learner_reset():
+    """Wipe the AI learner's history and model so it relearns from scratch.
+
+    Use after the cross-pair sizing fix: past trades were taken at the wrong
+    size, so their outcomes shouldn't bias the model going forward. The learner
+    stays ENABLED — it simply starts collecting fresh data from neutral.
+    """
+    discarded = trade_learner.reset()
+    return {
+        "status": "reset",
+        "discarded_trades": discarded,
+        "model_active": False,
+        "trades_until_active": trade_learner.MIN_TRADES,
+    }
+
+
 @router.get("/signal")
 async def current_signal():
     """Return the current signal for each configured pair WITHOUT placing a trade.

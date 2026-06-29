@@ -236,6 +236,22 @@ class TradeLearner:
         except Exception as exc:
             log.warning(f"TradeLearner: retrain failed: {exc}")
 
+    def reset(self) -> int:
+        """Wipe all learned history and the trained model, returning to a neutral
+        (untrained) state. Returns the number of trades that were discarded.
+
+        Use after a change that invalidates past outcomes (e.g. the cross-pair
+        sizing fix) so the model relearns only from correctly-sized trades.
+        """
+        with self._lock:
+            discarded = len(self._history)
+            self._history = []
+            self._model = None
+            self._pending_retrain = 0
+            self._save()  # persist the empty history so the reset survives restarts
+        log.info(f"TradeLearner: reset — discarded {discarded} historical trades")
+        return discarded
+
     def _save(self) -> None:
         try:
             os.makedirs(os.path.dirname(self._history_path) or ".", exist_ok=True)
