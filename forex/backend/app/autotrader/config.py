@@ -130,31 +130,32 @@ class AutoTraderConfig:
     # These are *researched starting points*, not validated numbers — backtest
     # each pair ALONE in the app and only add a pair to `pairs` once it shows a
     # positive profit factor and Calmar on its own.
+    # Confidence is kept at the EUR/JPY-proven 0.68–0.70 so each pair generates
+    # a statistically meaningful sample (a 0.75+ bar choked them to 3–4 trades
+    # over 2 weeks — too few to judge). The real per-pair differentiation is in
+    # stop sizing and spread tolerance, matched to each pair's volatility.
     pair_overrides: dict = field(default_factory=lambda: {
-        # GBP/JPY: most volatile major-cross. Big clean trends but whippy and
-        # news-spiky, with naturally wider spreads. Demand higher conviction to
-        # skip the chop, give stops more room, and tolerate its wider spread.
+        # GBP/JPY: most volatile major-cross. Big trends but whippy/news-spiky
+        # with naturally wider spreads — give stops more room, tolerate spread.
         "GBP_JPY": {
-            "min_confidence": 0.78,
+            "min_confidence": 0.70,
             "rr_ratio": 2.0,
             "min_stop_pips": 15.0,
             "max_stop_pips": 40.0,
             "max_spread_pips": 3.5,
         },
         # EUR/USD: lowest volatility, tightest spread, ranges more than it trends.
-        # Tighter stops to match its smaller daily range, tight spread gate, and
-        # a higher confidence bar because EMA crossovers whipsaw in ranges.
+        # Tighter stops to match its smaller daily range, tight spread gate.
         "EUR_USD": {
-            "min_confidence": 0.75,
+            "min_confidence": 0.68,
             "rr_ratio": 2.0,
             "min_stop_pips": 8.0,
             "max_stop_pips": 22.0,
             "max_spread_pips": 1.5,
         },
         # GBP/USD ("cable"): moderate volatility, trends well at London/NY open.
-        # Between EUR/USD and the JPY crosses in stop sizing.
         "GBP_USD": {
-            "min_confidence": 0.75,
+            "min_confidence": 0.68,
             "rr_ratio": 2.0,
             "min_stop_pips": 10.0,
             "max_stop_pips": 28.0,
@@ -162,7 +163,7 @@ class AutoTraderConfig:
         },
         # USD/JPY: trends smoothly, tight spread, moderate range.
         "USD_JPY": {
-            "min_confidence": 0.75,
+            "min_confidence": 0.68,
             "rr_ratio": 2.0,
             "min_stop_pips": 10.0,
             "max_stop_pips": 28.0,
