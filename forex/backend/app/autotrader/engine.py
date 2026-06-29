@@ -616,6 +616,12 @@ async def scan_and_trade() -> None:
         except Exception as exc:
             log.debug(f"AutoTrader: {fx_pair} rate unavailable, sizing in account currency: {exc}")
 
+    # ── Prop-firm challenge start balance (set once, never reset) ─────────────
+    if cfg.prop_mode and state.account_start_balance is None:
+        with state._lock:
+            state.account_start_balance = nav
+        log.info(f"AutoTrader: prop challenge started — base balance {nav:.2f}")
+
     # ── Daily reset & loss-limit check ───────────────────────────────────────
     today = now.date()
     needs_calendar_refresh = False
@@ -625,8 +631,12 @@ async def scan_and_trade() -> None:
             state.start_of_day_balance = nav
             state.daily_pl = 0.0
             state.trades_today = 0
-            state.halted = False
-            state.halt_reason = ""
+            # Do NOT clear a prop max-total-loss / profit-target halt on a new
+            # day — those are evaluation-ending and must persist. Only clear
+            # ordinary (daily) halts.
+            if not state.halt_reason.startswith("PROP"):
+                state.halted = False
+                state.halt_reason = ""
             needs_calendar_refresh = True
 
     # Refresh outside the lock via a thread so the blocking HTTP call doesn't
@@ -634,12 +644,45 @@ async def scan_and_trade() -> None:
     if needs_calendar_refresh:
         await asyncio.to_thread(refresh_blackout_windows, cfg)
 
+    # ── Prop-firm hard limits (measured from the fixed start balance) ─────────
+    if cfg.prop_mode and state.account_start_balance and state.account_start_balance > 0:
+        base = state.account_start_balance
+        total_return = (nav - base) / base
+
+        # Max total drawdown — evaluation-ending. Halt the bot permanently.
+        if total_return <= -cfg.prop_max_total_loss_pct:
+            with state._lock:
+                state.running = False
+                state.halted = True
+                state.halt_reason = (
+                    f"PROP max drawdown hit: {total_return:+.1%} from base "
+                    f"(limit -{cfg.prop_max_total_loss_pct:.0%})"
+                )
+            save_state()
+            log.warning(f"AutoTrader: {state.halt_reason} — bot stopped to protect the challenge")
+            return
+
+        # Profit target reached — lock it in, stop trading to bank the pass.
+        if total_return >= cfg.prop_profit_target_pct:
+            with state._lock:
+                state.running = False
+                state.halted = True
+                state.halt_reason = (
+                    f"PROP profit target hit: {total_return:+.1%} "
+                    f"(target +{cfg.prop_profit_target_pct:.0%}) — challenge passed"
+                )
+            save_state()
+            log.info(f"AutoTrader: {state.halt_reason} — bot stopped to bank the result")
+            return
+
     # ── Daily loss circuit-breaker ────────────────────────────────────────────
+    # In prop mode use the tighter prop daily limit; otherwise the normal one.
+    daily_limit = cfg.prop_daily_loss_pct if cfg.prop_mode else cfg.daily_loss_halt_pct
     if (
-        cfg.daily_loss_halt_pct > 0
+        daily_limit > 0
         and state.start_of_day_balance
         and state.start_of_day_balance > 0
-        and state.daily_pl / state.start_of_day_balance <= -cfg.daily_loss_halt_pct
+        and state.daily_pl / state.start_of_day_balance <= -daily_limit
     ):
         log.info(
             f"AutoTrader: daily loss circuit-breaker — P&L {state.daily_pl:+.2f} "

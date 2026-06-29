@@ -53,6 +53,11 @@ class BotState:
     halted: bool = False
     halt_reason: str = ""
 
+    # Prop-firm challenge tracking: the account balance when the challenge began.
+    # Unlike start_of_day_balance this is NEVER reset daily — the max-total-loss
+    # and profit-target limits are measured from it for the whole evaluation.
+    account_start_balance: float | None = None
+
     # Consecutive-loss step-down: risk_pct is multiplied by this factor.
     # McKay rule: 1.0 (normal) → 0.75 → 0.50 → halt.
     risk_scale: float = 1.0

@@ -29,6 +29,19 @@ class AutoTraderConfig:
                                        # this fraction of start-of-day balance (3%);
                                        # resets automatically next session. 0 = disabled.
 
+    # --- Prop-firm challenge mode ---
+    # Funded-account evaluations (FTMO, Topstep, etc.) fail you the instant
+    # equity breaches a daily-loss or max-total-loss limit. These guardrails halt
+    # the bot BEFORE those limits with a safety buffer, so a challenge can't be
+    # blown. The buffers are deliberately tighter than the typical firm limits
+    # (5% daily / 10% total) because an open position's floating loss can move
+    # equity between scans. When prop_mode is on, the engine measures drawdown
+    # from a fixed account_start_balance that never resets daily.
+    prop_mode: bool = False
+    prop_daily_loss_pct: float = 0.04    # halt for the day at -4% (firms fail at ~5%)
+    prop_max_total_loss_pct: float = 0.08  # halt permanently at -8% from start (fail at ~10%)
+    prop_profit_target_pct: float = 0.10   # stop & lock in once +10% target is reached
+
     # --- Entry filters ---
     min_confidence: float = 0.70    # minimum intraday signal confidence (0–1 scale)
     max_spread_pips: float = 2.0    # skip pair if live spread exceeds this

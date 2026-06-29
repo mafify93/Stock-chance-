@@ -52,6 +52,7 @@ class StartRequest(BaseModel):
     min_confidence: float | None = None
     session_filter: bool | None = None
     pairs: list[str] | None = None
+    prop_mode: bool | None = None
 
 
 class ConfigPatch(BaseModel):
@@ -95,6 +96,10 @@ class ConfigPatch(BaseModel):
     use_ny_open_momentum_filter: bool | None = None
     ema_session_window: bool | None = None
     use_ema_fallback: bool | None = None
+    prop_mode: bool | None = None
+    prop_daily_loss_pct: float | None = None
+    prop_max_total_loss_pct: float | None = None
+    prop_profit_target_pct: float | None = None
 
 
 class BacktestRequest(BaseModel):
@@ -181,6 +186,10 @@ class ConfigOut(BaseModel):
     use_ny_open_momentum_filter: bool
     ema_session_window: bool
     use_ema_fallback: bool
+    prop_mode: bool = False
+    prop_daily_loss_pct: float = 0.04
+    prop_max_total_loss_pct: float = 0.08
+    prop_profit_target_pct: float = 0.10
 
 
 class StatusOut(BaseModel):
@@ -239,6 +248,7 @@ async def start_bot(req: StartRequest):
     for field in (
         "risk_pct", "max_positions", "max_trades_per_day",
         "rr_ratio", "max_spread_pips", "min_confidence", "session_filter", "pairs",
+        "prop_mode",
     ):
         val = getattr(req, field, None)
         if val is not None:
@@ -252,6 +262,9 @@ async def start_bot(req: StartRequest):
         bot_state.running = True
         bot_state.halted = False
         bot_state.halt_reason = ""
+        # Fresh start = fresh challenge: re-base the prop max-loss / target floor
+        # on the next scan's NAV (cleared here so the engine recaptures it).
+        bot_state.account_start_balance = None
 
     # Re-populate open trades from OANDA so guards stay accurate after restarts.
     await resync_open_trades()
