@@ -321,9 +321,9 @@ async def backtest(req: BacktestRequest):
             setattr(cfg, field, val)
 
     pairs = req.pairs or cfg.pairs
-    # Cap bars at 6000 (≈4 trading weeks). Beyond this the bar-by-bar replay on
-    # a shared Render instance starts to risk the ~55s mobile-client timeout.
-    bars = max(100, min(req.bars, 6000))
+    # Cap bars at 5000 — OANDA's hard per-request limit for candle count
+    # (≈3.5 trading weeks of M5). Higher would need paginated fetches.
+    bars = max(100, min(req.bars, 5000))
 
     candles_by_pair: dict = {}
     h1_by_pair: dict = {}
@@ -407,7 +407,7 @@ async def backtest_live(bars: int = 3000, walk_forward_pct: float = 0.3):
     cfg = state.config            # the real, current live configuration
     base_url = state.base_url
     pairs = cfg.pairs
-    bars = max(100, min(bars, 6000))
+    bars = max(100, min(bars, 5000))  # OANDA hard per-request candle limit
 
     # Real account NAV so the P&L is in real dollars.
     starting_nav = 10000.0
