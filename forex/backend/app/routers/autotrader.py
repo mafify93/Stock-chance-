@@ -522,6 +522,45 @@ async def oanda_debug(trade_id: str | None = None):
         except Exception as exc:
             out["trade_lookup_error"] = str(exc)
 
+    # Account summary — did real money actually move?
+    try:
+        acct = await asyncio.to_thread(
+            oanda.get_account_summary, state.token, state.account_id, state.base_url
+        )
+        out["account"] = {
+            "balance": acct.get("balance"),
+            "NAV": acct.get("NAV"),
+            "unrealizedPL": acct.get("unrealizedPL"),
+            "openTradeCount": acct.get("openTradeCount"),
+            "openPositionCount": acct.get("openPositionCount"),
+            "pl": acct.get("pl"),  # lifetime realized P&L
+        }
+    except Exception as exc:
+        out["account_error"] = str(exc)
+
+    # Raw transaction lookup — was `trade_id` a FILL or a CANCEL/REJECT?
+    if trade_id:
+        try:
+            txn = await asyncio.to_thread(
+                oanda._request, "GET",
+                f"/accounts/{state.account_id}/transactions/{trade_id}",
+                state.token, state.base_url,
+            )
+            t = txn.get("transaction", {})
+            out["transaction_lookup"] = {
+                "id": t.get("id"),
+                "type": t.get("type"),
+                "instrument": t.get("instrument"),
+                "units": t.get("units"),
+                "reason": t.get("reason"),
+                "rejectReason": t.get("rejectReason"),
+                "pl": t.get("pl"),
+                "tradeOpened": t.get("tradeOpened"),
+                "tradesClosed": t.get("tradesClosed"),
+            }
+        except Exception as exc:
+            out["transaction_lookup_error"] = str(exc)
+
     out["bot_state_open"] = [
         {"trade_id": t.trade_id, "pair": t.pair, "side": t.side, "units": t.units, "status": t.status}
         for t in state.open_trades
