@@ -391,7 +391,7 @@ async def backtest(req: BacktestRequest):
 
 
 @router.post("/backtest-live")
-async def backtest_live(bars: int = 3000, walk_forward_pct: float = 0.3):
+async def backtest_live(bars: int = 3000, walk_forward_pct: float = 0.3, spread_pips: float = 1.2):
     """Run a backtest using the RUNNING bot's stored credentials and its EXACT
     current live config (risk %, confidence, R:R, pairs, all filters).
 
@@ -445,7 +445,7 @@ async def backtest_live(bars: int = 3000, walk_forward_pct: float = 0.3):
     if not candles_by_pair:
         raise HTTPException(502, detail=f"Could not load candles. {'; '.join(errors)}")
 
-    spread_by_pair = {p: 1.2 for p in candles_by_pair}
+    spread_by_pair = {p: spread_pips for p in candles_by_pair}
     try:
         result = await asyncio.wait_for(
             asyncio.to_thread(
