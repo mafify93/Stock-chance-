@@ -13,6 +13,9 @@ from dataclasses import dataclass, field
 class AutoTraderConfig:
     # --- Risk / sizing ---
     risk_pct: float = 0.01          # fraction of NAV to risk per trade (1 %)
+    max_leverage: float = 20.0      # cap position notional at this × NAV so orders
+                                    # don't get cancelled for INSUFFICIENT_MARGIN
+                                    # (OANDA retail majors ~30:1; 20 leaves a buffer)
     rr_ratio: float = 2.0           # reward-to-risk ratio for take-profit placement
     min_stop_pips: float = 12.0     # clamp stop distance from below
     max_stop_pips: float = 30.0     # clamp stop distance from above

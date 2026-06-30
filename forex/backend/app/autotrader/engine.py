@@ -1077,6 +1077,24 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
         log.debug(f"AutoTrader {pair}: unit count rounded to 0, skipping")
         return
 
+    # ── Margin cap ────────────────────────────────────────────────────────────
+    # Tight stops + high risk produce huge positions: 3% risk on a 12-pip stop
+    # sizes ~2.5M EUR/JPY units ≈ $3.4M notional, which exceeds OANDA's ~30:1
+    # retail leverage on an $88k account → the order is cancelled for
+    # INSUFFICIENT_MARGIN. Cap units so notional never exceeds max_leverage × NAV.
+    # notional_usd_per_unit = spot × quote_to_usd resolves to the base/USD rate
+    # for every pair (1.0 for USD-base like USD/JPY, ~spot for USD-quote, the
+    # cross rate for JPY crosses). nav here is already USD.
+    notional_usd_per_unit = spot * (quote_to_usd if (quote_to_usd and quote_to_usd > 0) else 1.0)
+    if notional_usd_per_unit > 0:
+        max_units_margin = int((nav * cfg.max_leverage) / notional_usd_per_unit)
+        if max_units_margin >= 1 and units > max_units_margin:
+            log.info(
+                f"AutoTrader {pair}: sizing capped by margin "
+                f"{units:,} → {max_units_margin:,} units ({cfg.max_leverage:.0f}x leverage cap)"
+            )
+            units = max_units_margin
+
     # ── Prices ────────────────────────────────────────────────────────────────
     entry = day_sig.entry or day_sig.price
 
@@ -1124,14 +1142,22 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
         log.error(f"AutoTrader {pair}: OANDA order failed ({exc.status_code}): {exc}")
         return
 
-    # Extract OANDA trade ID from the fill response
-    trade_id = "unknown"
+    # Confirm the order actually OPENED a trade. If it didn't (cancelled or
+    # rejected — e.g. INSUFFICIENT_MARGIN), do NOT record a phantom trade: that
+    # was the bug behind every trade "closing" at $0 one scan later. Log the
+    # real reason and bail so accounting/learner stay clean.
     fill_tx = result.get("orderFillTransaction") or {}
     opened = fill_tx.get("tradeOpened") or {}
-    if opened.get("tradeID"):
-        trade_id = str(opened["tradeID"])
-    elif result.get("lastTransactionID"):
-        trade_id = str(result["lastTransactionID"])
+    trade_id = str(opened.get("tradeID") or "")
+    if not trade_id:
+        cancel = result.get("orderCancelTransaction") or {}
+        reject = result.get("orderRejectTransaction") or {}
+        reason = cancel.get("reason") or reject.get("rejectReason") or "no tradeOpened in fill response"
+        log.warning(
+            f"AutoTrader {pair}: order did NOT open a position ({reason}) — "
+            f"requested {order_units:+,} units. No trade recorded."
+        )
+        return
 
     record = TradeRecord(
         pair=pair,
