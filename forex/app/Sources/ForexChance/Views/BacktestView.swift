@@ -19,7 +19,7 @@ struct BacktestView: View {
                     if let result = vm.backtestResult {
                         summaryCard(result)
                         if let wf = result.walkForward {
-                            walkForwardCard(wf)
+                            walkForwardCard(wf, fullMaxDrawdownPct: result.overall.maxDrawdownPct)
                         }
                         equityCurveCard(result)
                         if let strategies = result.perStrategy, !strategies.isEmpty {
@@ -204,10 +204,13 @@ struct BacktestView: View {
 
     // MARK: - Walk-forward (out-of-sample) validation
 
-    private func walkForwardCard(_ wf: WalkForwardModel) -> some View {
+    private func walkForwardCard(_ wf: WalkForwardModel, fullMaxDrawdownPct: Double) -> some View {
         let o = wf.overall
         let ret = o.returnPct
         let dd = o.maxDrawdownPct
+        // FTMO safety must use the WORST drawdown the challenge could face — the
+        // full backtest period, not just the calm out-of-sample slice.
+        let worstDD = max(dd, fullMaxDrawdownPct)
         let passed = ret > 0 && o.profitFactor >= 1.0 && wf.tradeCount >= 5
         return VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -260,10 +263,14 @@ struct BacktestView: View {
                 )
                 StatTile(
                     label: "FTMO DD?",
-                    value: dd < 8 ? "✓ Safe" : "✗ Risk",
-                    valueColor: dd < 8 ? Theme.profit : Theme.loss
+                    value: worstDD < 8 ? "✓ Safe" : "✗ Risk",
+                    valueColor: worstDD < 8 ? Theme.profit : Theme.loss
                 )
-                StatTile(label: "", value: "")
+                StatTile(
+                    label: "Worst DD",
+                    value: String(format: "-%.1f%%", worstDD),
+                    valueColor: worstDD < 8 ? Theme.profit : Theme.loss
+                )
             }
         }
         .cardStyle()
