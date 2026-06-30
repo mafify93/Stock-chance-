@@ -472,6 +472,63 @@ async def backtest_live(bars: int = 3000, walk_forward_pct: float = 0.3, spread_
     return result
 
 
+@router.get("/oanda-debug")
+async def oanda_debug(trade_id: str | None = None):
+    """Read OANDA's actual side directly (using the running bot's stored creds)
+    to diagnose state/P&L mismatches: live open trades and, optionally, the full
+    record of one trade by ID (state, realizedPL, unrealizedPL)."""
+    state = bot_state
+    if not state.token or not state.account_id:
+        raise HTTPException(400, detail="Bot not running — no stored credentials.")
+
+    out: dict = {}
+    try:
+        open_trades = await asyncio.to_thread(
+            oanda.get_open_trades, state.token, state.account_id, state.base_url
+        )
+        out["oanda_open_trades"] = [
+            {
+                "id": t.get("id"),
+                "instrument": t.get("instrument"),
+                "currentUnits": t.get("currentUnits"),
+                "price": t.get("price"),
+                "unrealizedPL": t.get("unrealizedPL"),
+                "realizedPL": t.get("realizedPL"),
+                "state": t.get("state"),
+            }
+            for t in open_trades
+        ]
+        out["oanda_open_count"] = len(open_trades)
+    except Exception as exc:
+        out["open_trades_error"] = str(exc)
+
+    if trade_id:
+        try:
+            t = await asyncio.to_thread(
+                oanda.get_trade, state.token, state.account_id, trade_id, state.base_url
+            )
+            out["trade_lookup"] = {
+                "id": t.get("id"),
+                "instrument": t.get("instrument"),
+                "state": t.get("state"),
+                "initialUnits": t.get("initialUnits"),
+                "currentUnits": t.get("currentUnits"),
+                "price": t.get("price"),
+                "realizedPL": t.get("realizedPL"),
+                "unrealizedPL": t.get("unrealizedPL"),
+                "closeTime": t.get("closeTime"),
+                "closingTransactionIDs": t.get("closingTransactionIDs"),
+            }
+        except Exception as exc:
+            out["trade_lookup_error"] = str(exc)
+
+    out["bot_state_open"] = [
+        {"trade_id": t.trade_id, "pair": t.pair, "side": t.side, "units": t.units, "status": t.status}
+        for t in state.open_trades
+    ]
+    return out
+
+
 @router.post("/reset-day")
 async def reset_day():
     """Reset today's trade counter and P&L so the bot can take new entries.
