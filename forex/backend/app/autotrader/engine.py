@@ -601,6 +601,8 @@ async def scan_and_trade() -> None:
     # USD values, so we need the USD-equivalent NAV regardless of account currency.
     account_currency = account_raw.get("currency", "USD")
     nav_usd = nav
+    margin_available = float(account_raw.get("marginAvailable") or 0.0)
+    fx_to_usd = 1.0
     if account_currency != "USD":
         fx_pair = f"USD_{account_currency}"
         try:
@@ -609,13 +611,15 @@ async def scan_and_trade() -> None:
             )
             fx_mid = (fx_pricing.get(pip_module.normalize(fx_pair)) or {}).get("mid")
             if fx_mid and float(fx_mid) > 0:
-                nav_usd = nav / float(fx_mid)
+                fx_to_usd = 1.0 / float(fx_mid)
+                nav_usd = nav * fx_to_usd
                 log.debug(
                     f"AutoTrader: {account_currency} account, NAV {nav:.0f} "
                     f"→ {nav_usd:.0f} USD (USD/{account_currency} {float(fx_mid):.4f})"
                 )
         except Exception as exc:
             log.debug(f"AutoTrader: {fx_pair} rate unavailable, sizing in account currency: {exc}")
+    margin_available_usd = margin_available * fx_to_usd if margin_available > 0 else 0.0
 
     # ── Prop-firm challenge start balance (set once, never reset) ─────────────
     if cfg.prop_mode and state.account_start_balance is None:
@@ -713,7 +717,7 @@ async def scan_and_trade() -> None:
             continue
 
         try:
-            await _evaluate_pair(pair, nav_usd, now)
+            await _evaluate_pair(pair, nav_usd, now, margin_available_usd)
         except Exception as exc:
             log.error(f"AutoTrader: unexpected error on {pair}: {exc}")
 
@@ -729,8 +733,15 @@ def _scan_note(pair: str, note: str, **kv) -> None:
             del bot_state.scan_log[:overflow]
 
 
-async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
-    """Evaluate one pair and place a trade if all conditions are met."""
+_margin_rate_cache: dict = {}  # (account_id, pair) -> float, fetched once per run
+
+
+async def _evaluate_pair(
+    pair: str, nav: float, now: datetime, margin_available: float = 0.0
+) -> None:
+    """Evaluate one pair and place a trade if all conditions are met.
+
+    `nav` and `margin_available` are in USD."""
     state = bot_state
     # Apply this pair's tuning profile so each pair trades with stop clamps,
     # confidence threshold, R:R and spread tolerance suited to its volatility.
@@ -1096,23 +1107,47 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
         log.debug(f"AutoTrader {pair}: unit count rounded to 0, skipping")
         return
 
-    # ── Margin cap ────────────────────────────────────────────────────────────
-    # Tight stops + high risk produce huge positions: 3% risk on a 12-pip stop
-    # sizes ~2.5M EUR/JPY units ≈ $3.4M notional, which exceeds OANDA's ~30:1
-    # retail leverage on an $88k account → the order is cancelled for
-    # INSUFFICIENT_MARGIN. Cap units so notional never exceeds max_leverage × NAV.
-    # notional_usd_per_unit = spot × quote_to_usd resolves to the base/USD rate
-    # for every pair (1.0 for USD-base like USD/JPY, ~spot for USD-quote, the
-    # cross rate for JPY crosses). nav here is already USD.
+    # ── Margin cap (uses the account's REAL margin rate) ──────────────────────
+    # Risk-sized positions on tight stops exceed what this account can margin —
+    # OANDA cancelled 21 straight orders with INSUFFICIENT_MARGIN, even at ~1.1M
+    # units, because the account's actual margin rate is stricter than the
+    # assumed retail 20-30:1. So: read the instrument's real marginRate from
+    # OANDA, and cap units so required margin fits in HALF the currently
+    # available margin (leaving room for concurrent positions and price drift).
+    # notional_usd_per_unit = spot × quote_to_usd = the base currency's USD rate.
     notional_usd_per_unit = spot * (quote_to_usd if (quote_to_usd and quote_to_usd > 0) else 1.0)
     if notional_usd_per_unit > 0:
-        max_units_margin = int((nav * cfg.max_leverage) / notional_usd_per_unit)
-        if max_units_margin >= 1 and units > max_units_margin:
+        cache_key = (state.account_id, pair)
+        margin_rate = _margin_rate_cache.get(cache_key)
+        if margin_rate is None:
+            try:
+                margin_rate = await asyncio.to_thread(
+                    oanda.get_instrument_margin_rate,
+                    pair, state.token, state.account_id, state.base_url,
+                )
+                if margin_rate and margin_rate > 0:
+                    _margin_rate_cache[cache_key] = margin_rate
+                    log.info(f"AutoTrader {pair}: account margin rate {margin_rate:.3f} "
+                             f"({1/margin_rate:.0f}:1 leverage)")
+            except Exception as exc:
+                log.warning(f"AutoTrader {pair}: margin-rate fetch failed: {exc}")
+                margin_rate = None
+
+        caps = []
+        if margin_rate and margin_rate > 0:
+            budget = (margin_available if margin_available > 0 else nav) * 0.5
+            caps.append(int(budget / (notional_usd_per_unit * margin_rate)))
+        # Fallback ceiling if the rate fetch failed: conservative 10:1.
+        caps.append(int((nav * min(cfg.max_leverage, 10.0)) / notional_usd_per_unit))
+        max_units_margin = max(1, min(caps))
+        if units > max_units_margin:
             log.info(
-                f"AutoTrader {pair}: sizing capped by margin "
-                f"{units:,} → {max_units_margin:,} units ({cfg.max_leverage:.0f}x leverage cap)"
+                f"AutoTrader {pair}: sizing capped by real margin "
+                f"{units:,} → {max_units_margin:,} units "
+                f"(rate={margin_rate}, avail=${margin_available:,.0f})"
             )
-            _scan_note(pair, "MARGIN_CAP", requested=units, capped=max_units_margin)
+            _scan_note(pair, "MARGIN_CAP", requested=units, capped=max_units_margin,
+                       margin_rate=margin_rate)
             units = max_units_margin
 
     # ── Prices ────────────────────────────────────────────────────────────────
