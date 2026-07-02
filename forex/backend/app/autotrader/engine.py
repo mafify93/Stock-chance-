@@ -102,7 +102,12 @@ async def monitor_open_trades() -> None:
 
     # Flatten all positions ~5 minutes before the 17:00 ET NY session close.
     # DST-aware (20:55 UTC in summer, 21:55 UTC in winter).
-    if state.config.session_filter and ny_close_imminent(now):
+    # 10-minute window (not 5): with 5-minute scans, a 5-minute window gives at
+    # most ONE scan a chance to flatten — and on 2026-07-02 that scan landed 6s
+    # before the rollover halt, so the closeout was cancelled MARKET_HALTED and
+    # the position rode overnight. 10 minutes guarantees ≥2 scan attempts,
+    # both comfortably before the halt.
+    if state.config.session_filter and ny_close_imminent(now, within_min=10):
         # Send daily summary before closing positions so P&L reflects open trades.
         if state.start_of_day_balance:
             telegram.notify_daily_summary(
