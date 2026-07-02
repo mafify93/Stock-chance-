@@ -718,6 +718,17 @@ async def scan_and_trade() -> None:
             log.error(f"AutoTrader: unexpected error on {pair}: {exc}")
 
 
+def _scan_note(pair: str, note: str, **kv) -> None:
+    """Append one entry to the rolling scan-decision log (max 400 entries)."""
+    entry = {"t": datetime.now(timezone.utc).strftime("%m-%d %H:%M:%S"), "pair": pair, "note": note}
+    entry.update(kv)
+    with bot_state._lock:
+        bot_state.scan_log.append(entry)
+        overflow = len(bot_state.scan_log) - 400
+        if overflow > 0:
+            del bot_state.scan_log[:overflow]
+
+
 async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
     """Evaluate one pair and place a trade if all conditions are met."""
     state = bot_state
@@ -926,6 +937,7 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
             f"AutoTrader {pair}: HOLD — signal={day_sig.action} "
             f"conf={day_sig.confidence:.0f}% [{signal_type}]"
         )
+        _scan_note(pair, "HOLD", conf=round(day_sig.confidence, 1))
         with state._lock:
             state.pending_signals.pop(pair, None)
         return
@@ -947,6 +959,8 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
                     f"AutoTrader {pair}: WAIT — {day_sig.action} conf={day_sig.confidence:.0f}% "
                     f"waiting for 2nd scan confirmation (prev: {prev or 'none'})"
                 )
+                _scan_note(pair, "WAIT_CONFIRM", action=day_sig.action,
+                           conf=round(day_sig.confidence, 1), prev=prev or "none")
                 return
             with state._lock:
                 state.pending_signals.pop(pair, None)
@@ -982,6 +996,8 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
         spread_pips = float((pricing.get(instr) or {}).get("spread_pips") or 0.0)
         if spread_pips > cfg.max_spread_pips:
             log.info(f"AutoTrader {pair}: SKIP — spread {spread_pips:.1f} pips > max {cfg.max_spread_pips:.1f}")
+            _scan_note(pair, "SKIP_SPREAD", spread=round(spread_pips, 1),
+                       max=cfg.max_spread_pips, action=day_sig.action)
             return
     except Exception:
         pass
@@ -1016,6 +1032,7 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
             log.info(
                 f"AutoTrader {pair}: SKIP — AI learner win prob {win_prob:.0%} < min {cfg.ai_min_win_prob:.0%}"
             )
+            _scan_note(pair, "SKIP_LEARNER", win_prob=round(win_prob, 2), action=day_sig.action)
             return
         if multiplier != 1.0:
             log.debug(
@@ -1033,6 +1050,8 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
             f"AutoTrader {pair}: SKIP — confidence {day_sig.confidence:.0f}% < "
             f"threshold {cfg.min_confidence * 100:.0f}% [{signal_type}]"
         )
+        _scan_note(pair, "SKIP_CONFIDENCE", conf=round(day_sig.confidence, 1),
+                   min=cfg.min_confidence * 100, action=day_sig.action)
         return
 
     # ── Correlation gate ─────────────────────────────────────────────────────
@@ -1093,6 +1112,7 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
                 f"AutoTrader {pair}: sizing capped by margin "
                 f"{units:,} → {max_units_margin:,} units ({cfg.max_leverage:.0f}x leverage cap)"
             )
+            _scan_note(pair, "MARGIN_CAP", requested=units, capped=max_units_margin)
             units = max_units_margin
 
     # ── Prices ────────────────────────────────────────────────────────────────
@@ -1140,6 +1160,7 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
         )
     except oanda.OandaError as exc:
         log.error(f"AutoTrader {pair}: OANDA order failed ({exc.status_code}): {exc}")
+        _scan_note(pair, "ORDER_HTTP_ERROR", status=exc.status_code, error=str(exc)[:120])
         return
 
     # Confirm the order actually OPENED a trade. If it didn't (cancelled or
@@ -1157,6 +1178,7 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
             f"AutoTrader {pair}: order did NOT open a position ({reason}) — "
             f"requested {order_units:+,} units. No trade recorded."
         )
+        _scan_note(pair, "ORDER_NOT_FILLED", reason=str(reason), units=order_units)
         return
 
     record = TradeRecord(
@@ -1177,6 +1199,8 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
         state.trades_today += 1
 
     log.info(f"AutoTrader {pair}: order placed, trade_id={trade_id}")
+    _scan_note(pair, "ORDER_FILLED", trade_id=trade_id, units=order_units,
+               entry=entry, conf=round(day_sig.confidence, 1))
     telegram.notify_trade_entry(
         pair, record.side, record.units, entry, stop_price, target_price,
         signal_type, day_sig.confidence,

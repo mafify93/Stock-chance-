@@ -70,6 +70,10 @@ class BotState:
     # A trade is only entered when two consecutive scans agree on direction.
     pending_signals: dict = field(default_factory=dict, compare=False)
 
+    # Rolling per-scan decision log (not persisted): why each scan did or
+    # didn't trade. Exposed via GET /api/autotrader/scan-log for diagnosis.
+    scan_log: list = field(default_factory=list, compare=False)
+
     _lock: Lock = field(default_factory=Lock, compare=False, repr=False)
 
     @property

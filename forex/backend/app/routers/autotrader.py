@@ -473,7 +473,7 @@ async def backtest_live(bars: int = 3000, walk_forward_pct: float = 0.3, spread_
 
 
 @router.get("/oanda-debug")
-async def oanda_debug(trade_id: str | None = None):
+async def oanda_debug(trade_id: str | None = None, since_txn_id: str | None = None):
     """Read OANDA's actual side directly (using the running bot's stored creds)
     to diagnose state/P&L mismatches: live open trades and, optionally, the full
     record of one trade by ID (state, realizedPL, unrealizedPL)."""
@@ -561,11 +561,44 @@ async def oanda_debug(trade_id: str | None = None):
         except Exception as exc:
             out["transaction_lookup_error"] = str(exc)
 
+    # Full transaction history since an ID — the definitive record of every
+    # order the bot placed and what OANDA did with it (fill/cancel/reject).
+    if since_txn_id:
+        try:
+            txns = await asyncio.to_thread(
+                oanda._request, "GET",
+                f"/accounts/{state.account_id}/transactions/sinceid",
+                state.token, state.base_url, params={"id": since_txn_id},
+            )
+            out["transactions_since"] = [
+                {
+                    "id": t.get("id"),
+                    "time": (t.get("time") or "")[:19],
+                    "type": t.get("type"),
+                    "instrument": t.get("instrument"),
+                    "units": t.get("units"),
+                    "reason": t.get("reason"),
+                    "rejectReason": t.get("rejectReason"),
+                    "pl": t.get("pl"),
+                    "tradeOpened": (t.get("tradeOpened") or {}).get("tradeID"),
+                }
+                for t in txns.get("transactions", [])
+            ]
+        except Exception as exc:
+            out["transactions_since_error"] = str(exc)
+
     out["bot_state_open"] = [
         {"trade_id": t.trade_id, "pair": t.pair, "side": t.side, "units": t.units, "status": t.status}
         for t in state.open_trades
     ]
     return out
+
+
+@router.get("/scan-log")
+async def scan_log(limit: int = 100):
+    """Per-scan decision log: why each recent scan did or didn't trade."""
+    entries = list(getattr(bot_state, "scan_log", []))
+    return {"count": len(entries), "entries": entries[-max(1, min(limit, 400)):][::-1]}
 
 
 @router.post("/reset-day")
