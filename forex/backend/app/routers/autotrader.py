@@ -530,11 +530,26 @@ async def oanda_debug(trade_id: str | None = None, since_txn_id: str | None = No
         out["account"] = {
             "balance": acct.get("balance"),
             "NAV": acct.get("NAV"),
+            "currency": acct.get("currency"),
+            "marginRate": acct.get("marginRate"),
+            "marginAvailable": acct.get("marginAvailable"),
+            "marginUsed": acct.get("marginUsed"),
             "unrealizedPL": acct.get("unrealizedPL"),
             "openTradeCount": acct.get("openTradeCount"),
             "openPositionCount": acct.get("openPositionCount"),
             "pl": acct.get("pl"),  # lifetime realized P&L
         }
+        # Instrument-level margin rate for the primary pair (account rate can
+        # differ per instrument — this is the one sizing actually hits).
+        try:
+            mr = await asyncio.to_thread(
+                oanda.get_instrument_margin_rate,
+                "EUR_JPY", state.token, state.account_id, state.base_url,
+            )
+            out["eur_jpy_margin_rate"] = mr
+            out["eur_jpy_effective_leverage"] = round(1 / mr, 1) if mr else None
+        except Exception as exc:
+            out["eur_jpy_margin_rate_error"] = str(exc)
     except Exception as exc:
         out["account_error"] = str(exc)
 
