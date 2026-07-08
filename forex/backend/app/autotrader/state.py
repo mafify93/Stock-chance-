@@ -35,6 +35,9 @@ class TradeRecord:
                                     # profit targets even after the stop is moved
     entry_features: dict = field(default_factory=dict)  # TradeFeatures snapshot at entry,
                                     # used by TradeLearner to record outcome on close
+    pl_unknown: bool = False        # True if OANDA's realizedPL could not be fetched
+                                    # after repeated retries — realized_pl is a fallback
+                                    # 0.0, NOT a confirmed scratch. Flagged, not hidden.
 
 
 @dataclass

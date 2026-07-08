@@ -44,6 +44,8 @@ struct AutoTradeRecord: Codable, Identifiable, Hashable {
     var status: String        // "open" | "closed"
     var closedAt: String?
     var realizedPl: Double?
+    var plUnknown: Bool = false   // true = OANDA's real P&L couldn't be fetched;
+                                  // realizedPl is a placeholder 0, NOT a confirmed scratch
 
     var id: String { "\(pair)-\(tradeId)" }
     var isOpen: Bool { status == "open" }

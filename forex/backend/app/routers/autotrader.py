@@ -141,6 +141,7 @@ class TradeOut(BaseModel):
     status: str
     closed_at: str | None = None
     realized_pl: float | None = None
+    pl_unknown: bool = False
 
 
 class ConfigOut(BaseModel):

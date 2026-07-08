@@ -463,6 +463,10 @@ async def resync_open_trades() -> None:
         log.info(f"AutoTrader: recovered {recovered} open trade(s) from OANDA after restart")
 
 
+_pl_fetch_retries: dict = {}   # trade_id -> consecutive failed realizedPL fetch attempts
+MAX_PL_FETCH_RETRIES = 5       # ~25 min of retries (one scan interval each) before giving up
+
+
 async def sync_closed_trades() -> None:
     """Detect which bot trades have been closed by OANDA (SL/TP hit) and update
     daily P&L and the McKay consecutive-loss step-down scale.
@@ -489,14 +493,36 @@ async def sync_closed_trades() -> None:
             continue  # still open
 
         # Fetch the realized P&L from OANDA so daily accounting stays accurate.
-        realized_pl = 0.0
+        # A fetch failure here (transient network blip, mid-deploy restart, etc.)
+        # must NOT silently record a real win/loss as $0 — that permanently
+        # mislabels the trade in history and feeds a wrong outcome to the
+        # learner. Retry on subsequent scans (the trade stays "open" in our
+        # book even though OANDA already closed it) up to MAX_PL_FETCH_RETRIES;
+        # only after that do we finalize with pl_unknown=True so the $0 is
+        # visibly flagged as "unconfirmed", never mistaken for a real scratch.
         try:
             trade_data = await asyncio.to_thread(
                 oanda.get_trade, state.token, state.account_id, trade.trade_id, state.base_url
             )
             realized_pl = float(trade_data.get("realizedPL") or 0)
+            _pl_fetch_retries.pop(trade.trade_id, None)
         except Exception as exc:
-            log.debug(f"AutoTrader: could not fetch P&L for trade {trade.trade_id}: {exc}")
+            attempts = _pl_fetch_retries.get(trade.trade_id, 0) + 1
+            if attempts < MAX_PL_FETCH_RETRIES:
+                _pl_fetch_retries[trade.trade_id] = attempts
+                log.warning(
+                    f"AutoTrader: P&L fetch failed for closed trade {trade.trade_id} "
+                    f"(attempt {attempts}/{MAX_PL_FETCH_RETRIES}), will retry next scan: {exc}"
+                )
+                continue  # do NOT finalize yet — try again next scan
+            log.error(
+                f"AutoTrader: P&L fetch failed {attempts}x for trade {trade.trade_id} — "
+                f"finalizing as pl_unknown (NOT a confirmed $0 scratch): {exc}"
+            )
+            realized_pl = 0.0
+            with state._lock:
+                trade.pl_unknown = True
+            _pl_fetch_retries.pop(trade.trade_id, None)
 
         with state._lock:
             trade.status = "closed"
