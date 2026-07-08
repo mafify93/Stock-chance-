@@ -696,6 +696,57 @@ async def emergency_close():
     return {"closed": closed, "errors": errors}
 
 
+@router.get("/regime-check")
+async def regime_check():
+    """Diagnose whether the ADX ranging-market gate is getting enough data to
+    be reliable. ADX is a chain of THREE EWM(1/14) smoothings (ATR -> +DM/-DM
+    -> DX -> ADX); the live engine only fetches 100 M5 bars, which may be too
+    thin for the final smoothing to have converged. Compute ADX on the live
+    100-bar window vs. a much longer 1000-bar window and compare — a big gap
+    means the live gate is reading an unreliable/unconverged value and may be
+    under- or over-blocking entries during real chop.
+    """
+    from ..indicators import adx as adx_fn, average_true_range
+
+    state = bot_state
+    if not state.token or not state.account_id:
+        raise HTTPException(400, detail="Bot not running — no stored credentials.")
+
+    cfg = state.config
+    out: dict = {"pairs": []}
+    for pair in cfg.pairs:
+        entry: dict = {"pair": pair}
+        try:
+            df_long = await asyncio.to_thread(
+                oanda.get_candles, pair, state.token, "M5", 1000, state.base_url
+            )
+            df_short = df_long.tail(100)
+
+            adx_short = adx_fn(df_short, 14).dropna()
+            adx_long = adx_fn(df_long, 14).dropna()
+            atr_short = average_true_range(df_short, 14).dropna()
+            atr_long = average_true_range(df_long, 14).dropna()
+
+            entry["adx_100bar_window"] = round(float(adx_short.iloc[-1]), 2) if len(adx_short) else None
+            entry["adx_1000bar_window"] = round(float(adx_long.iloc[-1]), 2) if len(adx_long) else None
+            entry["atr_100bar_window"] = round(float(atr_short.iloc[-1]), 6) if len(atr_short) else None
+            entry["atr_1000bar_window"] = round(float(atr_long.iloc[-1]), 6) if len(atr_long) else None
+            if entry["adx_100bar_window"] is not None and entry["adx_1000bar_window"] is not None:
+                entry["adx_discrepancy"] = round(
+                    entry["adx_100bar_window"] - entry["adx_1000bar_window"], 2
+                )
+            entry["would_ADX_gate_block_at_100bar"] = (
+                entry["adx_100bar_window"] is not None and entry["adx_100bar_window"] < 15
+            )
+            entry["would_ADX_gate_block_at_1000bar"] = (
+                entry["adx_1000bar_window"] is not None and entry["adx_1000bar_window"] < 15
+            )
+        except Exception as exc:
+            entry["error"] = str(exc)
+        out["pairs"].append(entry)
+    return out
+
+
 @router.get("/learner-stats")
 async def learner_stats():
     """Return the AI learner's current state: win rate, model activation, feature importances."""
