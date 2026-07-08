@@ -318,7 +318,7 @@ def simulate_pair(
                 i += 1
                 continue
             try:
-                sig = compute_day_signal(pair, window)
+                sig = compute_day_signal(pair, window, adx_threshold=cfg.adx_threshold)
             except Exception:
                 i += 1
                 continue

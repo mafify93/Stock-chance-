@@ -930,7 +930,7 @@ async def _evaluate_pair(
             return
         # Fall back to EMA/VWAP/RSI intraday signal
         try:
-            day_sig = compute_day_signal(pair, df_m5)
+            day_sig = compute_day_signal(pair, df_m5, adx_threshold=cfg.adx_threshold)
         except Exception as exc:
             log.debug(f"AutoTrader {pair}: signal error: {exc}")
             return

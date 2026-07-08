@@ -110,6 +110,14 @@ class AutoTraderConfig:
     ema_session_window: bool = False  # backtest proved harmful — cuts 75% of trades and drops
                                       # WR from 61% → 40%; session_filter alone is sufficient
 
+    # --- ADX ranging-market gate ---
+    # EMA entries are suppressed when ADX(14) falls below this threshold —
+    # below it the market is ranging and EMA crossovers are noise, not signal.
+    # Default 15 is the original, validated value. Raising it (e.g. 20-22)
+    # excludes the ADX 14-19 "borderline trend" zone where false breakouts
+    # cluster — tested via /backtest-live A/B before changing the live default.
+    adx_threshold: float = 15.0
+
     # --- Per-pair active trading hours (UTC) ---
     # When set (via a pair's override profile), restricts that pair to its genuine
     # high-liquidity directional hours instead of the generic London+NY window.
