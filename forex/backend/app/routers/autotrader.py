@@ -397,6 +397,10 @@ async def backtest_live(
     walk_forward_pct: float = 0.3,
     spread_pips: float = 1.2,
     adx_threshold: float | None = None,
+    use_mean_reversion: bool | None = None,
+    use_ema_fallback: bool | None = None,
+    mr_rr_ratio: float | None = None,
+    mr_adx_max: float | None = None,
 ):
     """Run a backtest using the RUNNING bot's stored credentials and its EXACT
     current live config (risk %, confidence, R:R, pairs, all filters).
@@ -416,8 +420,17 @@ async def backtest_live(
 
     import dataclasses
     cfg = state.config            # the real, current live configuration
-    if adx_threshold is not None:
-        cfg = dataclasses.replace(cfg, adx_threshold=adx_threshold)
+    overrides = {
+        k: v for k, v in {
+            "adx_threshold": adx_threshold,
+            "use_mean_reversion": use_mean_reversion,
+            "use_ema_fallback": use_ema_fallback,
+            "mr_rr_ratio": mr_rr_ratio,
+            "mr_adx_max": mr_adx_max,
+        }.items() if v is not None
+    }
+    if overrides:
+        cfg = dataclasses.replace(cfg, **overrides)
     base_url = state.base_url
     pairs = cfg.pairs
     bars = max(100, min(bars, 5000))  # OANDA hard per-request candle limit

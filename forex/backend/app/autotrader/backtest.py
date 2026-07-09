@@ -38,6 +38,7 @@ from ..signals import analyze as swing_analyze
 from .config import AutoTraderConfig
 from .engine import h1_blocks_trade
 from .london_breakout import london_open_breakout
+from .mean_reversion import mean_reversion_signal
 from .opening_range import opening_range_breakout
 from .order_blocks import order_block_reversal
 from .risk import calculate_units
@@ -293,12 +294,26 @@ def simulate_pair(
             if ict_result is not None:
                 signal_type = strategy_name
 
+        # Mean reversion: fires only in ranging regimes (ADX < mr_adx_max),
+        # the exact conditions where the EMA momentum path holds. Tried before
+        # EMA so the two form a regime switch. Self-confirming (band-touch
+        # event), so it skips the 2-scan confirmation like ICT signals.
+        mr_sig = None
+        if ict_result is None and cfg.use_mean_reversion:
+            try:
+                mr_sig = mean_reversion_signal(pair, window, adx_max=cfg.mr_adx_max)
+            except Exception:
+                mr_sig = None
+            if mr_sig is not None:
+                sig = mr_sig
+                signal_type = "mean_reversion"
+
         # Fallback: intraday VWAP/RSI/EMA signal (skip when kill-switch is off)
-        if ict_result is None and not cfg.use_ema_fallback:
+        if ict_result is None and mr_sig is None and not cfg.use_ema_fallback:
             i += 1
             continue
 
-        if ict_result is None:
+        if ict_result is None and mr_sig is None:
             # EMA session window: only trade during London open (07:00–09:30) and
             # NY open (13:30–15:30) UTC. The session_filter admits a 10-hour window
             # that includes the choppy London lunch drift (09:30–13:30) where EMA
@@ -353,7 +368,7 @@ def simulate_pair(
                     if sig.action == "DAY_SELL" and cur >= ny_ref:
                         i += 1
                         continue  # NY session bullish — skip EMA sell
-        else:
+        elif ict_result is not None:
             sig, _ = ict_result
 
         # ── Signal confirmation (EMA only — mirrors live engine) ─────────────
@@ -398,7 +413,9 @@ def simulate_pair(
             i += 1
             continue
         stop_pips = max(cfg.min_stop_pips, min(cfg.max_stop_pips, raw_stop))
-        target_pips = stop_pips * cfg.rr_ratio
+        # Reversion targets the mean (≈1:1), not momentum's 2:1 runner target.
+        rr = cfg.mr_rr_ratio if signal_type == "mean_reversion" else cfg.rr_ratio
+        target_pips = stop_pips * rr
 
         is_long = sig.action == "DAY_BUY"
 
@@ -623,7 +640,7 @@ def run_backtest(
         by_strategy[t.signal_type].append(t)
 
     per_strategy: list[BacktestStats] = []
-    for strategy_name in ("london_breakout", "orb", "order_block", "ema_fallback"):
+    for strategy_name in ("london_breakout", "orb", "order_block", "mean_reversion", "ema_fallback"):
         strategy_trades = by_strategy.get(strategy_name, [])
         if not strategy_trades:
             continue

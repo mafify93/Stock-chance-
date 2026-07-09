@@ -37,6 +37,7 @@ from .calendar import refresh_blackout_windows
 from .ict_sweep import ict_session_sweep
 from .learner import TradeFeatures, trade_learner
 from .london_breakout import london_open_breakout
+from .mean_reversion import mean_reversion_signal
 from .opening_range import opening_range_breakout
 from .order_blocks import order_block_reversal
 from .silver_bullet import silver_bullet
@@ -907,6 +908,23 @@ async def _evaluate_pair(
         except Exception as exc:
             log.debug(f"AutoTrader {pair}: Order Block error (falling back): {exc}")
 
+    # Mean reversion: fires only in ranging regimes (ADX < mr_adx_max) — the
+    # exact conditions where the EMA momentum path holds. Tried before EMA so
+    # the two form a regime switch. Self-confirming (band-touch event): its
+    # signal_type skips the 2-scan confirmation, like ICT signals.
+    if day_sig is None and cfg.use_mean_reversion:
+        try:
+            mr_sig = mean_reversion_signal(pair, df_m5, adx_max=cfg.mr_adx_max)
+            if mr_sig is not None:
+                day_sig = mr_sig
+                signal_type = "mean_reversion"
+                log.info(
+                    f"AutoTrader {pair}: Mean Reversion "
+                    f"({day_sig.action}, conf={day_sig.confidence:.0f}%)"
+                )
+        except Exception as exc:
+            log.debug(f"AutoTrader {pair}: mean reversion error (falling back): {exc}")
+
     if day_sig is None:
         if not cfg.use_ema_fallback:
             log.info(f"AutoTrader {pair}: no ICT signal this scan (EMA fallback disabled)")
@@ -1193,7 +1211,9 @@ async def _evaluate_pair(
 
     # Use the signal's pre-computed target when it delivers at least cfg.rr_ratio
     # reward relative to the (clamped) stop; otherwise use the RR-derived target.
-    target_pips = stop_pips * cfg.rr_ratio
+    # Mean reversion targets the mean (≈1:1), not momentum's 2:1 runner target.
+    _rr = cfg.mr_rr_ratio if signal_type == "mean_reversion" else cfg.rr_ratio
+    target_pips = stop_pips * _rr
     delta_tp = pip_module.from_pips(pair, target_pips)
     rr_target = (entry + delta_tp) if is_buy else (entry - delta_tp)
 

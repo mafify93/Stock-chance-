@@ -110,6 +110,15 @@ class AutoTraderConfig:
     ema_session_window: bool = False  # backtest proved harmful — cuts 75% of trades and drops
                                       # WR from 61% → 40%; session_filter alone is sufficient
 
+    # --- Mean reversion (range-regime complement to the momentum strategy) ---
+    # Momentum bleeds in ranges; this fades Bollinger-band extremes back to
+    # the mean ONLY while ADX says the market is ranging. Off by default —
+    # must earn its place via /backtest-live A/B before going live.
+    use_mean_reversion: bool = False
+    mr_adx_max: float = 20.0     # only fade when ADX(14) is BELOW this (ranging)
+    mr_rr_ratio: float = 1.0     # reversion targets the mean, not a runner:
+                                 # ~1:1 with a high win rate, vs momentum's 2:1
+
     # --- ADX ranging-market gate ---
     # EMA entries are suppressed when ADX(14) falls below this threshold —
     # below it the market is ranging and EMA crossovers are noise, not signal.
