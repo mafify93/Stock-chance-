@@ -195,6 +195,11 @@ class ConfigOut(BaseModel):
     prop_daily_loss_pct: float = 0.04
     prop_max_total_loss_pct: float = 0.08
     prop_profit_target_pct: float = 0.10
+    use_mean_reversion: bool = False
+    mr_adx_max: float = 20.0
+    mr_rr_ratio: float = 1.0
+    adx_threshold: float = 15.0
+    max_leverage: float = 20.0
 
 
 class StatusOut(BaseModel):
