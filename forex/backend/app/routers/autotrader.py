@@ -100,6 +100,10 @@ class ConfigPatch(BaseModel):
     prop_daily_loss_pct: float | None = None
     prop_max_total_loss_pct: float | None = None
     prop_profit_target_pct: float | None = None
+    use_mean_reversion: bool | None = None
+    mr_adx_max: float | None = None
+    mr_rr_ratio: float | None = None
+    adx_threshold: float | None = None
 
 
 class BacktestRequest(BaseModel):
