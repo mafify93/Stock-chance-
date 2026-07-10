@@ -99,7 +99,11 @@ class AutoTraderConfig:
     # only ICT strategies (London Breakout, ICT Sweep, Silver Bullet) run.
     # Use this in the backtest to isolate London Breakout's standalone edge —
     # if Calmar improves without EMA, the EMA is the leak.
-    use_ema_fallback: bool = True
+    use_ema_fallback: bool = False  # momentum leg OFF (2026-07-10): live 20% WR over
+                                     # 15 trades and OOS PF 0.33 in the current regime;
+                                     # MR-only dominates combined on every metric
+                                     # (Calmar 4.07 vs 1.64, DD 7.1% vs 13.4%).
+                                     # Re-enable only after it re-proves in backtest.
 
     # --- EMA session time window ---
     # The session_filter gates on "London or NY open" — a 10-hour window that
