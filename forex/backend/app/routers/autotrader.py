@@ -787,6 +787,47 @@ async def learner_stats():
     return trade_learner.stats()
 
 
+@router.post("/learner-replay")
+async def learner_replay(since: str = "2026-07-10", signal_type: str = "mean_reversion"):
+    """Re-feed closed trades from the bot's trade log into the learner.
+
+    Used after a learner reset to restore legitimate history: each closed
+    trade stored its TradeFeatures snapshot at entry (entry_features), so the
+    exact features the learner would have seen can be replayed with the real
+    realized P&L. Filters to `signal_type` so trades from retired strategies
+    stay out. NOT idempotent — calling twice duplicates entries.
+    """
+    replayed, skipped = [], 0
+    for t in bot_state.trades:
+        if t.status != "closed" or not t.entry_features:
+            continue
+        if t.opened_at < since:
+            continue
+        if getattr(t, "pl_unknown", False) or t.realized_pl in (None, 0, 0.0):
+            skipped += 1
+            continue
+        if t.entry_features.get("signal_type") != signal_type:
+            skipped += 1
+            continue
+        try:
+            trade_learner.record(
+                TradeFeatures.from_dict(t.entry_features), float(t.realized_pl)
+            )
+            replayed.append({
+                "opened_at": t.opened_at[:16],
+                "side": t.side,
+                "realized_pl": round(float(t.realized_pl), 2),
+            })
+        except Exception as exc:
+            skipped += 1
+    return {
+        "replayed": len(replayed),
+        "skipped": skipped,
+        "trades": replayed,
+        "learner": trade_learner.stats(),
+    }
+
+
 @router.post("/learner-reset")
 async def learner_reset():
     """Wipe the AI learner's history and model so it relearns from scratch.
