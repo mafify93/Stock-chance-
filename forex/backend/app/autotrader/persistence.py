@@ -94,6 +94,7 @@ def _snapshot(state: BotState) -> dict:
         "config": dataclasses.asdict(state.config),
         "session_date": state.session_date.isoformat() if state.session_date else None,
         "start_of_day_balance": state.start_of_day_balance,
+        "account_start_balance": state.account_start_balance,
         "daily_pl": state.daily_pl,
         "trades_today": state.trades_today,
         "consecutive_losses": state.consecutive_losses,
@@ -151,6 +152,7 @@ def load_into_state() -> bool:
         sd = snap.get("session_date")
         bot_state.session_date = date.fromisoformat(sd) if sd else None
         bot_state.start_of_day_balance = snap.get("start_of_day_balance")
+        bot_state.account_start_balance = snap.get("account_start_balance")
         bot_state.daily_pl = float(snap.get("daily_pl", 0.0))
         bot_state.trades_today = int(snap.get("trades_today", 0))
         bot_state.consecutive_losses = int(snap.get("consecutive_losses", 0))

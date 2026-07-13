@@ -104,8 +104,14 @@ def _clip(x: float, lo: float = -1.0, hi: float = 1.0) -> float:
     return float(max(lo, min(hi, x)))
 
 
-def compute_day_signal(pair: str, df: pd.DataFrame) -> DaySignalResult:
-    """Compute a same-day Buy/Sell/Hold signal from 5-minute intraday bars."""
+def compute_day_signal(pair: str, df: pd.DataFrame, adx_threshold: float = 15.0) -> DaySignalResult:
+    """Compute a same-day Buy/Sell/Hold signal from 5-minute intraday bars.
+
+    `adx_threshold`: EMA entries are suppressed when ADX(14) falls below this
+    (ranging market). Default 15 matches the original, validated behavior;
+    exposed as a parameter so the backtest can A/B test stricter thresholds
+    without touching the live default.
+    """
     decimals = pips.price_decimals(pair)
 
     session_df = latest_session(df)
@@ -289,7 +295,7 @@ def compute_day_signal(pair: str, df: pd.DataFrame) -> DaySignalResult:
         try:
             adx_series = adx_indicator(df, 14)
             adx_val = adx_series.dropna()
-            if len(adx_val) > 0 and float(adx_val.iloc[-1]) < 15:
+            if len(adx_val) > 0 and float(adx_val.iloc[-1]) < adx_threshold:
                 action = "DAY_HOLD"
                 score = 0.0
         except Exception:

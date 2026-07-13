@@ -35,6 +35,9 @@ class TradeRecord:
                                     # profit targets even after the stop is moved
     entry_features: dict = field(default_factory=dict)  # TradeFeatures snapshot at entry,
                                     # used by TradeLearner to record outcome on close
+    pl_unknown: bool = False        # True if OANDA's realizedPL could not be fetched
+                                    # after repeated retries — realized_pl is a fallback
+                                    # 0.0, NOT a confirmed scratch. Flagged, not hidden.
 
 
 @dataclass
@@ -53,6 +56,11 @@ class BotState:
     halted: bool = False
     halt_reason: str = ""
 
+    # Prop-firm challenge tracking: the account balance when the challenge began.
+    # Unlike start_of_day_balance this is NEVER reset daily — the max-total-loss
+    # and profit-target limits are measured from it for the whole evaluation.
+    account_start_balance: float | None = None
+
     # Consecutive-loss step-down: risk_pct is multiplied by this factor.
     # McKay rule: 1.0 (normal) → 0.75 → 0.50 → halt.
     risk_scale: float = 1.0
@@ -64,6 +72,10 @@ class BotState:
     # Pending signal confirmation: pair → action from the PREVIOUS scan.
     # A trade is only entered when two consecutive scans agree on direction.
     pending_signals: dict = field(default_factory=dict, compare=False)
+
+    # Rolling per-scan decision log (not persisted): why each scan did or
+    # didn't trade. Exposed via GET /api/autotrader/scan-log for diagnosis.
+    scan_log: list = field(default_factory=list, compare=False)
 
     _lock: Lock = field(default_factory=Lock, compare=False, repr=False)
 

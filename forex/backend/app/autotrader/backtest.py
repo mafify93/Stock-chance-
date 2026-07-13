@@ -38,6 +38,7 @@ from ..signals import analyze as swing_analyze
 from .config import AutoTraderConfig
 from .engine import h1_blocks_trade
 from .london_breakout import london_open_breakout
+from .mean_reversion import mean_reversion_signal
 from .opening_range import opening_range_breakout
 from .order_blocks import order_block_reversal
 from .risk import calculate_units
@@ -167,6 +168,10 @@ def simulate_pair(
     H1 data is supplied, entries that fight the H1 trend are skipped — exactly
     as the live engine does.
     """
+    # Apply this pair's tuning profile (stop clamps, confidence, R:R, spread)
+    # so the backtest mirrors how the live engine trades each pair.
+    cfg = cfg.resolved_for(pair)
+
     trades: list[BacktestTrade] = []
     nav = starting_nav
     risk_scale = 1.0
@@ -249,7 +254,14 @@ def simulate_pair(
             continue
 
         # ── Session gate (mirror the live engine) ─────────────────────────────
-        if cfg.session_filter:
+        # Per-pair active hours (research-based) take precedence: each currency
+        # trends during its own centre's session. Falls back to the generic
+        # London/NY filter for pairs without an active_hours_utc profile.
+        if cfg.active_hours_utc:
+            if not cfg.in_active_hours(bar_time.hour):
+                i += 1
+                continue
+        elif cfg.session_filter:
             session = get_market_session(bar_time.to_pydatetime())
             if session.status != "open" or not (
                 set(session.active_sessions) & {"London", "New York"}
@@ -282,12 +294,26 @@ def simulate_pair(
             if ict_result is not None:
                 signal_type = strategy_name
 
+        # Mean reversion: fires only in ranging regimes (ADX < mr_adx_max),
+        # the exact conditions where the EMA momentum path holds. Tried before
+        # EMA so the two form a regime switch. Self-confirming (band-touch
+        # event), so it skips the 2-scan confirmation like ICT signals.
+        mr_sig = None
+        if ict_result is None and cfg.use_mean_reversion:
+            try:
+                mr_sig = mean_reversion_signal(pair, window, adx_max=cfg.mr_adx_max)
+            except Exception:
+                mr_sig = None
+            if mr_sig is not None:
+                sig = mr_sig
+                signal_type = "mean_reversion"
+
         # Fallback: intraday VWAP/RSI/EMA signal (skip when kill-switch is off)
-        if ict_result is None and not cfg.use_ema_fallback:
+        if ict_result is None and mr_sig is None and not cfg.use_ema_fallback:
             i += 1
             continue
 
-        if ict_result is None:
+        if ict_result is None and mr_sig is None:
             # EMA session window: only trade during London open (07:00–09:30) and
             # NY open (13:30–15:30) UTC. The session_filter admits a 10-hour window
             # that includes the choppy London lunch drift (09:30–13:30) where EMA
@@ -307,7 +333,7 @@ def simulate_pair(
                 i += 1
                 continue
             try:
-                sig = compute_day_signal(pair, window)
+                sig = compute_day_signal(pair, window, adx_threshold=cfg.adx_threshold)
             except Exception:
                 i += 1
                 continue
@@ -342,7 +368,7 @@ def simulate_pair(
                     if sig.action == "DAY_SELL" and cur >= ny_ref:
                         i += 1
                         continue  # NY session bullish — skip EMA sell
-        else:
+        elif ict_result is not None:
             sig, _ = ict_result
 
         # ── Signal confirmation (EMA only — mirrors live engine) ─────────────
@@ -387,7 +413,9 @@ def simulate_pair(
             i += 1
             continue
         stop_pips = max(cfg.min_stop_pips, min(cfg.max_stop_pips, raw_stop))
-        target_pips = stop_pips * cfg.rr_ratio
+        # Reversion targets the mean (≈1:1), not momentum's 2:1 runner target.
+        rr = cfg.mr_rr_ratio if signal_type == "mean_reversion" else cfg.rr_ratio
+        target_pips = stop_pips * rr
 
         is_long = sig.action == "DAY_BUY"
 
@@ -439,27 +467,36 @@ def simulate_pair(
         while j < n:
             hi = float(df["High"].iloc[j])
             lo = float(df["Low"].iloc[j])
-            # Arm breakeven BEFORE checking stop_hit — if price reaches
-            # be_trigger earlier in the bar than it reaches the original stop,
-            # the breakeven order fires first and the stop check should use the
-            # updated (tighter) be_stop rather than the original stop.
-            if cfg.breakeven_stop and not armed:
-                if (is_long and hi >= be_trigger) or (not is_long and lo <= be_trigger):
+            # Worst-case intra-bar ordering (consistent with the both-touched
+            # rule): if the ORIGINAL stop is within this bar's range while
+            # breakeven is not yet armed, assume the adverse move happened first
+            # and the original stop filled for a full loss — do NOT optimistically
+            # arm breakeven and downgrade it to a +1-pip scratch. Only once a
+            # PRIOR bar has armed breakeven does the tighter be_stop apply.
+            if not armed:
+                orig_stop_hit = (lo <= cur_stop) if is_long else (hi >= cur_stop)
+                if orig_stop_hit:
+                    outcome = "stop"
+                    exit_price = (cur_stop - slip) if is_long else (cur_stop + slip)
+                    exit_time = df.index[j]
+                    break
+                # Original stop survived this bar — now it's safe to arm breakeven.
+                if cfg.breakeven_stop and (
+                    (is_long and hi >= be_trigger) or (not is_long and lo <= be_trigger)
+                ):
                     armed = True
                     cur_stop = be_stop
+
             if is_long:
                 stop_hit = lo <= cur_stop
                 tgt_hit = hi >= target_price
             else:
                 stop_hit = hi >= cur_stop
                 tgt_hit = lo <= target_price
+            # Worst-case both-touched: stop is checked before target.
             if stop_hit:
                 outcome = "breakeven" if armed else "stop"
-                # Stop orders fill at market — apply adverse slippage
-                if is_long:
-                    exit_price = cur_stop - slip
-                else:
-                    exit_price = cur_stop + slip
+                exit_price = (cur_stop - slip) if is_long else (cur_stop + slip)
                 exit_time = df.index[j]
                 break
             if tgt_hit:
@@ -603,7 +640,7 @@ def run_backtest(
         by_strategy[t.signal_type].append(t)
 
     per_strategy: list[BacktestStats] = []
-    for strategy_name in ("london_breakout", "orb", "order_block", "ema_fallback"):
+    for strategy_name in ("london_breakout", "orb", "order_block", "mean_reversion", "ema_fallback"):
         strategy_trades = by_strategy.get(strategy_name, [])
         if not strategy_trades:
             continue

@@ -37,9 +37,11 @@ from .calendar import refresh_blackout_windows
 from .ict_sweep import ict_session_sweep
 from .learner import TradeFeatures, trade_learner
 from .london_breakout import london_open_breakout
+from .mean_reversion import mean_reversion_signal
 from .opening_range import opening_range_breakout
 from .order_blocks import order_block_reversal
 from .silver_bullet import silver_bullet
+from .persistence import save_state
 from .risk import calculate_units
 from .state import TradeRecord, bot_state
 from . import telegram
@@ -101,7 +103,12 @@ async def monitor_open_trades() -> None:
 
     # Flatten all positions ~5 minutes before the 17:00 ET NY session close.
     # DST-aware (20:55 UTC in summer, 21:55 UTC in winter).
-    if state.config.session_filter and ny_close_imminent(now):
+    # 10-minute window (not 5): with 5-minute scans, a 5-minute window gives at
+    # most ONE scan a chance to flatten — and on 2026-07-02 that scan landed 6s
+    # before the rollover halt, so the closeout was cancelled MARKET_HALTED and
+    # the position rode overnight. 10 minutes guarantees ≥2 scan attempts,
+    # both comfortably before the halt.
+    if state.config.session_filter and ny_close_imminent(now, within_min=10):
         # Send daily summary before closing positions so P&L reflects open trades.
         if state.start_of_day_balance:
             telegram.notify_daily_summary(
@@ -457,6 +464,10 @@ async def resync_open_trades() -> None:
         log.info(f"AutoTrader: recovered {recovered} open trade(s) from OANDA after restart")
 
 
+_pl_fetch_retries: dict = {}   # trade_id -> consecutive failed realizedPL fetch attempts
+MAX_PL_FETCH_RETRIES = 5       # ~25 min of retries (one scan interval each) before giving up
+
+
 async def sync_closed_trades() -> None:
     """Detect which bot trades have been closed by OANDA (SL/TP hit) and update
     daily P&L and the McKay consecutive-loss step-down scale.
@@ -483,14 +494,36 @@ async def sync_closed_trades() -> None:
             continue  # still open
 
         # Fetch the realized P&L from OANDA so daily accounting stays accurate.
-        realized_pl = 0.0
+        # A fetch failure here (transient network blip, mid-deploy restart, etc.)
+        # must NOT silently record a real win/loss as $0 — that permanently
+        # mislabels the trade in history and feeds a wrong outcome to the
+        # learner. Retry on subsequent scans (the trade stays "open" in our
+        # book even though OANDA already closed it) up to MAX_PL_FETCH_RETRIES;
+        # only after that do we finalize with pl_unknown=True so the $0 is
+        # visibly flagged as "unconfirmed", never mistaken for a real scratch.
         try:
             trade_data = await asyncio.to_thread(
                 oanda.get_trade, state.token, state.account_id, trade.trade_id, state.base_url
             )
             realized_pl = float(trade_data.get("realizedPL") or 0)
+            _pl_fetch_retries.pop(trade.trade_id, None)
         except Exception as exc:
-            log.debug(f"AutoTrader: could not fetch P&L for trade {trade.trade_id}: {exc}")
+            attempts = _pl_fetch_retries.get(trade.trade_id, 0) + 1
+            if attempts < MAX_PL_FETCH_RETRIES:
+                _pl_fetch_retries[trade.trade_id] = attempts
+                log.warning(
+                    f"AutoTrader: P&L fetch failed for closed trade {trade.trade_id} "
+                    f"(attempt {attempts}/{MAX_PL_FETCH_RETRIES}), will retry next scan: {exc}"
+                )
+                continue  # do NOT finalize yet — try again next scan
+            log.error(
+                f"AutoTrader: P&L fetch failed {attempts}x for trade {trade.trade_id} — "
+                f"finalizing as pl_unknown (NOT a confirmed $0 scratch): {exc}"
+            )
+            realized_pl = 0.0
+            with state._lock:
+                trade.pl_unknown = True
+            _pl_fetch_retries.pop(trade.trade_id, None)
 
         with state._lock:
             trade.status = "closed"
@@ -556,12 +589,22 @@ async def scan_and_trade() -> None:
     cfg = state.config
 
     # ── Session gate ─────────────────────────────────────────────────────────
+    # Coarse scan-level gate only: proceed if the generic London/NY session is
+    # open OR any configured pair has its own active-hours window covering this
+    # hour (e.g. USD/JPY's Tokyo window, which lies outside London/NY). The
+    # precise per-pair enforcement happens in _evaluate_pair.
     if cfg.session_filter:
         session = get_market_session(now)
-        if session.status != "open":
-            return
-        if not (set(session.active_sessions) & {"London", "New York"}):
-            log.debug("AutoTrader: outside London/NY session, scan skipped")
+        generic_open = session.status == "open" and bool(
+            set(session.active_sessions) & {"London", "New York"}
+        )
+        any_pair_active = any(
+            state.config.resolved_for(p).active_hours_utc
+            and state.config.resolved_for(p).in_active_hours(now.hour)
+            for p in cfg.pairs
+        )
+        if not generic_open and not any_pair_active:
+            log.debug("AutoTrader: outside all session windows, scan skipped")
             return
 
     # ── Rollover & news blackout gates (no new entries) ──────────────────────
@@ -590,6 +633,8 @@ async def scan_and_trade() -> None:
     # USD values, so we need the USD-equivalent NAV regardless of account currency.
     account_currency = account_raw.get("currency", "USD")
     nav_usd = nav
+    margin_available = float(account_raw.get("marginAvailable") or 0.0)
+    fx_to_usd = 1.0
     if account_currency != "USD":
         fx_pair = f"USD_{account_currency}"
         try:
@@ -598,13 +643,21 @@ async def scan_and_trade() -> None:
             )
             fx_mid = (fx_pricing.get(pip_module.normalize(fx_pair)) or {}).get("mid")
             if fx_mid and float(fx_mid) > 0:
-                nav_usd = nav / float(fx_mid)
+                fx_to_usd = 1.0 / float(fx_mid)
+                nav_usd = nav * fx_to_usd
                 log.debug(
                     f"AutoTrader: {account_currency} account, NAV {nav:.0f} "
                     f"→ {nav_usd:.0f} USD (USD/{account_currency} {float(fx_mid):.4f})"
                 )
         except Exception as exc:
             log.debug(f"AutoTrader: {fx_pair} rate unavailable, sizing in account currency: {exc}")
+    margin_available_usd = margin_available * fx_to_usd if margin_available > 0 else 0.0
+
+    # ── Prop-firm challenge start balance (set once, never reset) ─────────────
+    if cfg.prop_mode and state.account_start_balance is None:
+        with state._lock:
+            state.account_start_balance = nav
+        log.info(f"AutoTrader: prop challenge started — base balance {nav:.2f}")
 
     # ── Daily reset & loss-limit check ───────────────────────────────────────
     today = now.date()
@@ -615,8 +668,12 @@ async def scan_and_trade() -> None:
             state.start_of_day_balance = nav
             state.daily_pl = 0.0
             state.trades_today = 0
-            state.halted = False
-            state.halt_reason = ""
+            # Do NOT clear a prop max-total-loss / profit-target halt on a new
+            # day — those are evaluation-ending and must persist. Only clear
+            # ordinary (daily) halts.
+            if not state.halt_reason.startswith("PROP"):
+                state.halted = False
+                state.halt_reason = ""
             needs_calendar_refresh = True
 
     # Refresh outside the lock via a thread so the blocking HTTP call doesn't
@@ -624,12 +681,45 @@ async def scan_and_trade() -> None:
     if needs_calendar_refresh:
         await asyncio.to_thread(refresh_blackout_windows, cfg)
 
+    # ── Prop-firm hard limits (measured from the fixed start balance) ─────────
+    if cfg.prop_mode and state.account_start_balance and state.account_start_balance > 0:
+        base = state.account_start_balance
+        total_return = (nav - base) / base
+
+        # Max total drawdown — evaluation-ending. Halt the bot permanently.
+        if total_return <= -cfg.prop_max_total_loss_pct:
+            with state._lock:
+                state.running = False
+                state.halted = True
+                state.halt_reason = (
+                    f"PROP max drawdown hit: {total_return:+.1%} from base "
+                    f"(limit -{cfg.prop_max_total_loss_pct:.0%})"
+                )
+            save_state()
+            log.warning(f"AutoTrader: {state.halt_reason} — bot stopped to protect the challenge")
+            return
+
+        # Profit target reached — lock it in, stop trading to bank the pass.
+        if total_return >= cfg.prop_profit_target_pct:
+            with state._lock:
+                state.running = False
+                state.halted = True
+                state.halt_reason = (
+                    f"PROP profit target hit: {total_return:+.1%} "
+                    f"(target +{cfg.prop_profit_target_pct:.0%}) — challenge passed"
+                )
+            save_state()
+            log.info(f"AutoTrader: {state.halt_reason} — bot stopped to bank the result")
+            return
+
     # ── Daily loss circuit-breaker ────────────────────────────────────────────
+    # In prop mode use the tighter prop daily limit; otherwise the normal one.
+    daily_limit = cfg.prop_daily_loss_pct if cfg.prop_mode else cfg.daily_loss_halt_pct
     if (
-        cfg.daily_loss_halt_pct > 0
+        daily_limit > 0
         and state.start_of_day_balance
         and state.start_of_day_balance > 0
-        and state.daily_pl / state.start_of_day_balance <= -cfg.daily_loss_halt_pct
+        and state.daily_pl / state.start_of_day_balance <= -daily_limit
     ):
         log.info(
             f"AutoTrader: daily loss circuit-breaker — P&L {state.daily_pl:+.2f} "
@@ -659,15 +749,53 @@ async def scan_and_trade() -> None:
             continue
 
         try:
-            await _evaluate_pair(pair, nav_usd, now)
+            await _evaluate_pair(pair, nav_usd, now, margin_available_usd)
         except Exception as exc:
             log.error(f"AutoTrader: unexpected error on {pair}: {exc}")
 
 
-async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
-    """Evaluate one pair and place a trade if all conditions are met."""
+def _scan_note(pair: str, note: str, **kv) -> None:
+    """Append one entry to the rolling scan-decision log (max 400 entries)."""
+    entry = {"t": datetime.now(timezone.utc).strftime("%m-%d %H:%M:%S"), "pair": pair, "note": note}
+    entry.update(kv)
+    with bot_state._lock:
+        bot_state.scan_log.append(entry)
+        overflow = len(bot_state.scan_log) - 400
+        if overflow > 0:
+            del bot_state.scan_log[:overflow]
+
+
+_margin_rate_cache: dict = {}  # (account_id, pair) -> float, fetched once per run
+
+
+async def _evaluate_pair(
+    pair: str, nav: float, now: datetime, margin_available: float = 0.0
+) -> None:
+    """Evaluate one pair and place a trade if all conditions are met.
+
+    `nav` and `margin_available` are in USD."""
     state = bot_state
-    cfg = state.config
+    # Apply this pair's tuning profile so each pair trades with stop clamps,
+    # confidence threshold, R:R and spread tolerance suited to its volatility.
+    cfg = state.config.resolved_for(pair)
+
+    # ── Per-pair active-hours gate ────────────────────────────────────────────
+    # Pairs with a research-based active_hours_utc window trade only during their
+    # own centre's high-liquidity session. Pairs without one fall back to the
+    # generic London/NY session filter. Mirrors the backtest gate exactly.
+    if cfg.active_hours_utc:
+        if not cfg.in_active_hours(now.hour):
+            log.info(
+                f"AutoTrader {pair}: outside active hours {cfg.active_hours_utc} "
+                f"(now {now.hour:02d}:{now.minute:02d} UTC)"
+            )
+            return
+    elif cfg.session_filter:
+        session = get_market_session(now)
+        if session.status != "open" or not (
+            set(session.active_sessions) & {"London", "New York"}
+        ):
+            return
 
     # ── M5 candles ───────────────────────────────────────────────────────────
     try:
@@ -780,6 +908,23 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
         except Exception as exc:
             log.debug(f"AutoTrader {pair}: Order Block error (falling back): {exc}")
 
+    # Mean reversion: fires only in ranging regimes (ADX < mr_adx_max) — the
+    # exact conditions where the EMA momentum path holds. Tried before EMA so
+    # the two form a regime switch. Self-confirming (band-touch event): its
+    # signal_type skips the 2-scan confirmation, like ICT signals.
+    if day_sig is None and cfg.use_mean_reversion:
+        try:
+            mr_sig = mean_reversion_signal(pair, df_m5, adx_max=cfg.mr_adx_max)
+            if mr_sig is not None:
+                day_sig = mr_sig
+                signal_type = "mean_reversion"
+                log.info(
+                    f"AutoTrader {pair}: Mean Reversion "
+                    f"({day_sig.action}, conf={day_sig.confidence:.0f}%)"
+                )
+        except Exception as exc:
+            log.debug(f"AutoTrader {pair}: mean reversion error (falling back): {exc}")
+
     if day_sig is None:
         if not cfg.use_ema_fallback:
             log.info(f"AutoTrader {pair}: no ICT signal this scan (EMA fallback disabled)")
@@ -803,7 +948,7 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
             return
         # Fall back to EMA/VWAP/RSI intraday signal
         try:
-            day_sig = compute_day_signal(pair, df_m5)
+            day_sig = compute_day_signal(pair, df_m5, adx_threshold=cfg.adx_threshold)
         except Exception as exc:
             log.debug(f"AutoTrader {pair}: signal error: {exc}")
             return
@@ -852,6 +997,7 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
             f"AutoTrader {pair}: HOLD — signal={day_sig.action} "
             f"conf={day_sig.confidence:.0f}% [{signal_type}]"
         )
+        _scan_note(pair, "HOLD", conf=round(day_sig.confidence, 1))
         with state._lock:
             state.pending_signals.pop(pair, None)
         return
@@ -873,6 +1019,8 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
                     f"AutoTrader {pair}: WAIT — {day_sig.action} conf={day_sig.confidence:.0f}% "
                     f"waiting for 2nd scan confirmation (prev: {prev or 'none'})"
                 )
+                _scan_note(pair, "WAIT_CONFIRM", action=day_sig.action,
+                           conf=round(day_sig.confidence, 1), prev=prev or "none")
                 return
             with state._lock:
                 state.pending_signals.pop(pair, None)
@@ -908,6 +1056,8 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
         spread_pips = float((pricing.get(instr) or {}).get("spread_pips") or 0.0)
         if spread_pips > cfg.max_spread_pips:
             log.info(f"AutoTrader {pair}: SKIP — spread {spread_pips:.1f} pips > max {cfg.max_spread_pips:.1f}")
+            _scan_note(pair, "SKIP_SPREAD", spread=round(spread_pips, 1),
+                       max=cfg.max_spread_pips, action=day_sig.action)
             return
     except Exception:
         pass
@@ -942,6 +1092,7 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
             log.info(
                 f"AutoTrader {pair}: SKIP — AI learner win prob {win_prob:.0%} < min {cfg.ai_min_win_prob:.0%}"
             )
+            _scan_note(pair, "SKIP_LEARNER", win_prob=round(win_prob, 2), action=day_sig.action)
             return
         if multiplier != 1.0:
             log.debug(
@@ -959,6 +1110,8 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
             f"AutoTrader {pair}: SKIP — confidence {day_sig.confidence:.0f}% < "
             f"threshold {cfg.min_confidence * 100:.0f}% [{signal_type}]"
         )
+        _scan_note(pair, "SKIP_CONFIDENCE", conf=round(day_sig.confidence, 1),
+                   min=cfg.min_confidence * 100, action=day_sig.action)
         return
 
     # ── Correlation gate ─────────────────────────────────────────────────────
@@ -975,10 +1128,76 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
     # ── Position sizing (McKay step-down applied) ─────────────────────────────
     spot = day_sig.price
     effective_risk = cfg.risk_pct * state.risk_scale
-    units = calculate_units(nav, effective_risk, stop_pips, pair, spot)
+
+    # Resolve the quote currency's USD value so pip-value (and therefore unit
+    # count) is exact for every pair, including JPY crosses like EUR/JPY. Without
+    # this, crosses are mis-sized by the cross rate (~160× too small for EUR/JPY).
+    quote_ccy = pip_module.quote_currency(pair)
+    quote_to_usd: float | None = 1.0
+    if quote_ccy == "USD":
+        quote_to_usd = 1.0
+    elif pip_module.base_currency(pair) == "USD" and spot > 0:
+        quote_to_usd = 1.0 / spot          # pair price IS USD/quote (e.g. USD_JPY)
+    else:
+        # True cross (e.g. EUR_JPY): fetch USD/quote and invert to get quote→USD.
+        try:
+            q_pair = pip_module.normalize(f"USD_{quote_ccy}")
+            q_pricing = await asyncio.to_thread(
+                oanda.get_pricing, [q_pair], state.token, state.account_id, state.base_url
+            )
+            q_mid = (q_pricing.get(q_pair) or {}).get("mid")
+            quote_to_usd = (1.0 / float(q_mid)) if q_mid and float(q_mid) > 0 else None
+        except Exception as exc:
+            log.warning(f"AutoTrader {pair}: USD/{quote_ccy} rate fetch failed, sizing may be off: {exc}")
+            quote_to_usd = None
+
+    units = calculate_units(nav, effective_risk, stop_pips, pair, spot, quote_to_usd)
     if units < 1:
         log.debug(f"AutoTrader {pair}: unit count rounded to 0, skipping")
         return
+
+    # ── Margin cap (uses the account's REAL margin rate) ──────────────────────
+    # Risk-sized positions on tight stops exceed what this account can margin —
+    # OANDA cancelled 21 straight orders with INSUFFICIENT_MARGIN, even at ~1.1M
+    # units, because the account's actual margin rate is stricter than the
+    # assumed retail 20-30:1. So: read the instrument's real marginRate from
+    # OANDA, and cap units so required margin fits in HALF the currently
+    # available margin (leaving room for concurrent positions and price drift).
+    # notional_usd_per_unit = spot × quote_to_usd = the base currency's USD rate.
+    notional_usd_per_unit = spot * (quote_to_usd if (quote_to_usd and quote_to_usd > 0) else 1.0)
+    if notional_usd_per_unit > 0:
+        cache_key = (state.account_id, pair)
+        margin_rate = _margin_rate_cache.get(cache_key)
+        if margin_rate is None:
+            try:
+                margin_rate = await asyncio.to_thread(
+                    oanda.get_instrument_margin_rate,
+                    pair, state.token, state.account_id, state.base_url,
+                )
+                if margin_rate and margin_rate > 0:
+                    _margin_rate_cache[cache_key] = margin_rate
+                    log.info(f"AutoTrader {pair}: account margin rate {margin_rate:.3f} "
+                             f"({1/margin_rate:.0f}:1 leverage)")
+            except Exception as exc:
+                log.warning(f"AutoTrader {pair}: margin-rate fetch failed: {exc}")
+                margin_rate = None
+
+        caps = []
+        if margin_rate and margin_rate > 0:
+            budget = (margin_available if margin_available > 0 else nav) * 0.5
+            caps.append(int(budget / (notional_usd_per_unit * margin_rate)))
+        # Fallback ceiling if the rate fetch failed: conservative 10:1.
+        caps.append(int((nav * min(cfg.max_leverage, 10.0)) / notional_usd_per_unit))
+        max_units_margin = max(1, min(caps))
+        if units > max_units_margin:
+            log.info(
+                f"AutoTrader {pair}: sizing capped by real margin "
+                f"{units:,} → {max_units_margin:,} units "
+                f"(rate={margin_rate}, avail=${margin_available:,.0f})"
+            )
+            _scan_note(pair, "MARGIN_CAP", requested=units, capped=max_units_margin,
+                       margin_rate=margin_rate)
+            units = max_units_margin
 
     # ── Prices ────────────────────────────────────────────────────────────────
     entry = day_sig.entry or day_sig.price
@@ -992,7 +1211,9 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
 
     # Use the signal's pre-computed target when it delivers at least cfg.rr_ratio
     # reward relative to the (clamped) stop; otherwise use the RR-derived target.
-    target_pips = stop_pips * cfg.rr_ratio
+    # Mean reversion targets the mean (≈1:1), not momentum's 2:1 runner target.
+    _rr = cfg.mr_rr_ratio if signal_type == "mean_reversion" else cfg.rr_ratio
+    target_pips = stop_pips * _rr
     delta_tp = pip_module.from_pips(pair, target_pips)
     rr_target = (entry + delta_tp) if is_buy else (entry - delta_tp)
 
@@ -1025,16 +1246,26 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
         )
     except oanda.OandaError as exc:
         log.error(f"AutoTrader {pair}: OANDA order failed ({exc.status_code}): {exc}")
+        _scan_note(pair, "ORDER_HTTP_ERROR", status=exc.status_code, error=str(exc)[:120])
         return
 
-    # Extract OANDA trade ID from the fill response
-    trade_id = "unknown"
+    # Confirm the order actually OPENED a trade. If it didn't (cancelled or
+    # rejected — e.g. INSUFFICIENT_MARGIN), do NOT record a phantom trade: that
+    # was the bug behind every trade "closing" at $0 one scan later. Log the
+    # real reason and bail so accounting/learner stay clean.
     fill_tx = result.get("orderFillTransaction") or {}
     opened = fill_tx.get("tradeOpened") or {}
-    if opened.get("tradeID"):
-        trade_id = str(opened["tradeID"])
-    elif result.get("lastTransactionID"):
-        trade_id = str(result["lastTransactionID"])
+    trade_id = str(opened.get("tradeID") or "")
+    if not trade_id:
+        cancel = result.get("orderCancelTransaction") or {}
+        reject = result.get("orderRejectTransaction") or {}
+        reason = cancel.get("reason") or reject.get("rejectReason") or "no tradeOpened in fill response"
+        log.warning(
+            f"AutoTrader {pair}: order did NOT open a position ({reason}) — "
+            f"requested {order_units:+,} units. No trade recorded."
+        )
+        _scan_note(pair, "ORDER_NOT_FILLED", reason=str(reason), units=order_units)
+        return
 
     record = TradeRecord(
         pair=pair,
@@ -1054,6 +1285,8 @@ async def _evaluate_pair(pair: str, nav: float, now: datetime) -> None:
         state.trades_today += 1
 
     log.info(f"AutoTrader {pair}: order placed, trade_id={trade_id}")
+    _scan_note(pair, "ORDER_FILLED", trade_id=trade_id, units=order_units,
+               entry=entry, conf=round(day_sig.confidence, 1))
     telegram.notify_trade_entry(
         pair, record.side, record.units, entry, stop_price, target_price,
         signal_type, day_sig.confidence,

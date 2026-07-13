@@ -173,6 +173,31 @@ def get_account_summary(token: str, account_id: str, base_url: str = PRACTICE_BA
     return data.get("account", {})
 
 
+def get_instrument_margin_rate(
+    pair: str, token: str, account_id: str, base_url: str = PRACTICE_BASE_URL
+) -> float | None:
+    """The account's ACTUAL margin rate for one instrument (e.g. 0.05 = 20:1,
+    0.10 = 10:1). This is per-account — practice accounts can be configured
+    with far lower leverage than the jurisdiction maximum, so sizing must use
+    this real number rather than an assumed cap."""
+    instrument = pips.normalize(pair)
+    data = _request(
+        "GET",
+        f"/accounts/{account_id}/instruments",
+        token,
+        base_url,
+        params={"instruments": instrument},
+    )
+    for inst in data.get("instruments", []):
+        if inst.get("name") == instrument:
+            mr = inst.get("marginRate")
+            try:
+                return float(mr) if mr else None
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
 def get_open_positions(token: str, account_id: str, base_url: str = PRACTICE_BASE_URL) -> list[dict]:
     data = _request("GET", f"/accounts/{account_id}/openPositions", token, base_url)
     return data.get("positions", [])
