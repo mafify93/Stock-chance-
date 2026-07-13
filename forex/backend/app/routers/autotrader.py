@@ -410,6 +410,7 @@ async def backtest_live(
     use_ema_fallback: bool | None = None,
     mr_rr_ratio: float | None = None,
     mr_adx_max: float | None = None,
+    pairs: str | None = None,
 ):
     """Run a backtest using the RUNNING bot's stored credentials and its EXACT
     current live config (risk %, confidence, R:R, pairs, all filters).
@@ -422,6 +423,11 @@ async def backtest_live(
     `adx_threshold` overrides the live config's ADX ranging-market cutoff for
     THIS backtest only (doesn't touch the live/persisted config) — lets you
     A/B a stricter threshold against the exact same historical data.
+
+    `pairs` overrides the live config's pair universe for THIS backtest only,
+    e.g. `pairs=CAD_JPY` or `pairs=EUR_JPY,CAD_JPY` — lets you test a pair
+    that isn't (yet) in the live rotation using the bot's stored credentials,
+    without touching the live/persisted config.
     """
     state = bot_state
     if not state.token or not state.account_id:
@@ -429,6 +435,10 @@ async def backtest_live(
 
     import dataclasses
     cfg = state.config            # the real, current live configuration
+    pairs_override = (
+        [p.strip().upper() for p in pairs.split(",") if p.strip()]
+        if pairs is not None else None
+    )
     overrides = {
         k: v for k, v in {
             "adx_threshold": adx_threshold,
@@ -436,6 +446,7 @@ async def backtest_live(
             "use_ema_fallback": use_ema_fallback,
             "mr_rr_ratio": mr_rr_ratio,
             "mr_adx_max": mr_adx_max,
+            "pairs": pairs_override,
         }.items() if v is not None
     }
     if overrides:
