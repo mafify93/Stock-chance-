@@ -146,6 +146,7 @@ class TradeOut(BaseModel):
     closed_at: str | None = None
     realized_pl: float | None = None
     pl_unknown: bool = False
+    signal_type: str | None = None
 
 
 class ConfigOut(BaseModel):
@@ -239,7 +240,13 @@ async def get_status():
         consecutive_losses=s.consecutive_losses,
         risk_scale=s.risk_scale,
         config=ConfigOut(**cfg.__dict__),
-        recent_trades=[TradeOut(**t.__dict__) for t in recent],
+        recent_trades=[
+            TradeOut(
+                **{k: v for k, v in t.__dict__.items() if k not in ("entry_features", "partial_closed", "breakeven_set", "peak_profit_r", "init_risk")},
+                signal_type=t.entry_features.get("signal_type"),
+            )
+            for t in recent
+        ],
     )
 
 
