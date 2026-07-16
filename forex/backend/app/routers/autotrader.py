@@ -799,6 +799,19 @@ async def regime_check():
     return out
 
 
+@router.post("/telegram-test")
+async def telegram_test():
+    """Fire a test Telegram message so you can confirm TELEGRAM_BOT_TOKEN /
+    TELEGRAM_CHAT_ID are configured correctly without waiting for a real trade."""
+    if not telegram._enabled():
+        raise HTTPException(
+            400,
+            detail="Telegram not configured — set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID on Render.",
+        )
+    telegram.send("✅ <b>Test message</b>\nTelegram notifications are wired up correctly.")
+    return {"sent": True}
+
+
 @router.get("/learner-stats")
 async def learner_stats():
     """Return the AI learner's current state: win rate, model activation, feature importances."""
