@@ -526,7 +526,7 @@ async def backtest_live(
 
 
 @router.get("/oanda-debug")
-async def oanda_debug(trade_id: str | None = None, since_txn_id: str | None = None):
+async def oanda_debug(trade_id: str | None = None, since_txn_id: str | None = None, instrument: str | None = None):
     """Read OANDA's actual side directly (using the running bot's stored creds)
     to diagnose state/P&L mismatches: live open trades and, optionally, the full
     record of one trade by ID (state, realizedPL, unrealizedPL)."""
@@ -605,6 +605,16 @@ async def oanda_debug(trade_id: str | None = None, since_txn_id: str | None = No
             out["eur_jpy_margin_rate_error"] = str(exc)
     except Exception as exc:
         out["account_error"] = str(exc)
+
+    if instrument:
+        try:
+            details = await asyncio.to_thread(
+                oanda.get_instrument_details,
+                instrument, state.token, state.account_id, state.base_url,
+            )
+            out["instrument_details"] = details
+        except Exception as exc:
+            out["instrument_details_error"] = str(exc)
 
     # Raw transaction lookup — was `trade_id` a FILL or a CANCEL/REJECT?
     if trade_id:

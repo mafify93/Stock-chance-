@@ -198,6 +198,27 @@ def get_instrument_margin_rate(
     return None
 
 
+def get_instrument_details(
+    pair: str, token: str, account_id: str, base_url: str = PRACTICE_BASE_URL
+) -> dict | None:
+    """Raw OANDA instrument metadata: pipLocation, displayPrecision,
+    marginRate, minimumTradeSize, tradeUnitsPrecision. Source of truth for
+    pip sizing on non-standard instruments (e.g. XAU_USD) instead of
+    assuming the usual 4-decimal forex convention."""
+    instrument = pips.normalize(pair)
+    data = _request(
+        "GET",
+        f"/accounts/{account_id}/instruments",
+        token,
+        base_url,
+        params={"instruments": instrument},
+    )
+    for inst in data.get("instruments", []):
+        if inst.get("name") == instrument:
+            return inst
+    return None
+
+
 def get_open_positions(token: str, account_id: str, base_url: str = PRACTICE_BASE_URL) -> list[dict]:
     data = _request("GET", f"/accounts/{account_id}/openPositions", token, base_url)
     return data.get("positions", [])
