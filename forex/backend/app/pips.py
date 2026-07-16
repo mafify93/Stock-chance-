@@ -9,14 +9,17 @@ module is the single source of truth for converting between price and pips.
 from __future__ import annotations
 
 # Pairs quoted in JPY (and a few exotics) use 0.01 as one pip instead of
-# the usual 0.0001.
+# the usual 0.0001. Gold (XAU) shares this convention too, as the BASE
+# currency rather than the quote — confirmed via OANDA's own instrument
+# metadata (pipLocation -2, displayPrecision 3), not assumed; a wrong
+# assumption here caused the worst sizing bug in this project's history.
 JPY_QUOTED = ("JPY",)
+_TWO_DECIMAL_PIP_BASE = ("XAU",)
 
 
 def pip_size(pair: str) -> float:
     """Price increment of a single pip for `pair` (e.g. "EUR_USD" -> 0.0001)."""
-    quote = quote_currency(pair)
-    if quote in JPY_QUOTED:
+    if quote_currency(pair) in JPY_QUOTED or base_currency(pair) in _TWO_DECIMAL_PIP_BASE:
         return 0.01
     return 0.0001
 
@@ -24,7 +27,9 @@ def pip_size(pair: str) -> float:
 def price_decimals(pair: str) -> int:
     """How many decimals to display a price with (one more than the pip,
     matching OANDA's fractional-pip pricing)."""
-    return 3 if quote_currency(pair) in JPY_QUOTED else 5
+    if quote_currency(pair) in JPY_QUOTED or base_currency(pair) in _TWO_DECIMAL_PIP_BASE:
+        return 3
+    return 5
 
 
 def base_currency(pair: str) -> str:

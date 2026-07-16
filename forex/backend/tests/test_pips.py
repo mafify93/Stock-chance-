@@ -26,6 +26,29 @@ def test_price_decimals():
     assert pips.price_decimals("USD_JPY") == 3
 
 
+def test_pip_size_gold_matches_oanda_pip_location():
+    # OANDA's XAU_USD pipLocation is -2 (same numeric convention as JPY
+    # pairs), confirmed via /oanda-debug?instrument=XAU_USD, not assumed.
+    assert pips.pip_size("XAU_USD") == 0.01
+    assert pips.price_decimals("XAU_USD") == 3
+
+
+def test_pip_value_gold_is_direct_no_conversion_needed():
+    # XAU/USD is USD-quoted, so pip value is exactly pip_size regardless of
+    # gold's much larger absolute price — no cross-rate conversion needed.
+    assert pips.pip_value_per_unit("XAU_USD", 4008.05) == pytest.approx(0.01)
+    assert pips.pip_value_per_unit("XAU_USD", 4008.05, 1.0) == pytest.approx(0.01)
+
+
+def test_calculate_units_gold_realistic_stop():
+    from app.autotrader.risk import calculate_units
+
+    # $85k account, 3% risk, $15 stop (1500 pips at gold's 0.01 pip size).
+    units = calculate_units(85_000, 0.03, 1500, "XAU_USD", 4008.05, 1.0)
+    actual_risk = units * 1500 * 0.01
+    assert actual_risk == pytest.approx(2550, rel=0.01)
+
+
 def test_to_and_from_pips_roundtrip():
     # 20 pips on EUR/USD == 0.0020
     assert pips.from_pips("EUR_USD", 20) == pytest.approx(0.0020)
