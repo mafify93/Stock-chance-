@@ -43,6 +43,11 @@ _PAIR_IDS: dict[str, float] = {
     "USD_JPY": 2.0,
     "EUR_JPY": 3.0,
     "GBP_JPY": 4.0,
+    "CAD_JPY": 5.0,
+    "AUD_JPY": 6.0,
+    "NZD_JPY": 7.0,
+    "CHF_JPY": 8.0,
+    "XAU_USD": 9.0,
 }
 
 _SIGNAL_IDS: dict[str, float] = {
@@ -52,6 +57,10 @@ _SIGNAL_IDS: dict[str, float] = {
     "orb": 3.0,
     "silver_bullet": 4.0,
     "order_block": 5.0,
+    # mean_reversion is the current primary live strategy — it MUST have its
+    # own id. Without this it defaulted to 0.0 and collided with the retired
+    # ema_vwap_rsi, making the two indistinguishable to the model.
+    "mean_reversion": 6.0,
 }
 
 
