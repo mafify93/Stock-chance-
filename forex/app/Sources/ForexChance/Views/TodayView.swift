@@ -49,9 +49,6 @@ struct TodayView: View {
                 }
             }
             .navigationTitle("Forex Chance")
-            .navigationDestination(for: String.self) { pairCode in
-                PairDetailView(pair: PairInfo.from(code: pairCode))
-            }
             .refreshable { await viewModel.refresh() }
         }
         .task { await viewModel.refresh() }
@@ -62,7 +59,9 @@ private struct TopPickHeroCard: View {
     let pick: Opportunity
 
     var body: some View {
-        NavigationLink(value: pick.pair) {
+        NavigationLink {
+            PairDetailView(pair: PairInfo.from(code: pick.pair))
+        } label: {
             VStack(alignment: .leading, spacing: 14) {
                 HStack {
                     Text("TOP PICK")
@@ -104,7 +103,9 @@ private struct OpportunityRow: View {
     let pick: Opportunity
 
     var body: some View {
-        NavigationLink(value: pick.pair) {
+        NavigationLink {
+            PairDetailView(pair: PairInfo.from(code: pick.pair))
+        } label: {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(pick.display)
