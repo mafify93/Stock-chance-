@@ -163,6 +163,8 @@ class TradeLearner:
                     "model_active": False,
                     "trades_until_active": self.MIN_TRADES,
                     "feature_importances": None,
+                    "known_pairs": sorted(_PAIR_IDS.keys()),
+                    "known_signals": sorted(_SIGNAL_IDS.keys()),
                 }
             wins = sum(e["won"] for e in self._history)
             importances = None
@@ -185,6 +187,8 @@ class TradeLearner:
                 "model_active": self._model is not None,
                 "trades_until_active": max(0, self.MIN_TRADES - total),
                 "feature_importances": importances,
+                "known_pairs": sorted(_PAIR_IDS.keys()),
+                "known_signals": sorted(_SIGNAL_IDS.keys()),
             }
 
     # ── Private ──────────────────────────────────────────────────────────────
