@@ -418,6 +418,8 @@ async def backtest_live(
     mr_rr_ratio: float | None = None,
     mr_adx_max: float | None = None,
     pairs: str | None = None,
+    min_stop_pips: float | None = None,
+    max_stop_pips: float | None = None,
 ):
     """Run a backtest using the RUNNING bot's stored credentials and its EXACT
     current live config (risk %, confidence, R:R, pairs, all filters).
@@ -454,6 +456,8 @@ async def backtest_live(
             "mr_rr_ratio": mr_rr_ratio,
             "mr_adx_max": mr_adx_max,
             "pairs": pairs_override,
+            "min_stop_pips": min_stop_pips,
+            "max_stop_pips": max_stop_pips,
         }.items() if v is not None
     }
     if overrides:
