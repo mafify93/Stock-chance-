@@ -892,6 +892,60 @@ async def learner_reset():
     }
 
 
+@router.post("/reconcile-pl")
+async def reconcile_pl(feed_learner: bool = True):
+    """Recover the real realized P&L for trades the old close-sync bug finalized
+    as an unconfirmed $0 (pl_unknown=True), reading it from OANDA's transaction
+    stream. Corrects each trade record, adjusts today's daily P&L for any that
+    closed in the current session, and (optionally) feeds the recovered outcome
+    to the AI learner — which had been starved of these losses because it skips
+    $0 trades. Idempotent: a trade is only touched while still pl_unknown."""
+    state = bot_state
+    if not state.token or not state.account_id:
+        raise HTTPException(400, detail="Bot not running — no stored credentials.")
+
+    fixed, still_unknown = [], []
+    for trade in state.trades:
+        if not getattr(trade, "pl_unknown", False):
+            continue
+        try:
+            pl = await asyncio.to_thread(
+                oanda.get_realized_pl_from_transactions,
+                state.token, state.account_id, trade.trade_id, state.base_url,
+            )
+        except Exception as exc:
+            still_unknown.append({"trade_id": trade.trade_id, "error": str(exc)})
+            continue
+        if pl is None:
+            still_unknown.append({"trade_id": trade.trade_id, "error": "no closing fill found"})
+            continue
+        with state._lock:
+            trade.realized_pl = pl
+            trade.pl_unknown = False
+            # Only touch today's running P&L if the trade closed this session.
+            if trade.closed_at and state.session_date and \
+                    trade.closed_at[:10] == state.session_date.isoformat():
+                state.daily_pl += pl
+        if feed_learner and trade.entry_features:
+            try:
+                trade_learner.record(TradeFeatures.from_dict(trade.entry_features), float(pl))
+            except Exception:
+                pass
+        fixed.append({
+            "trade_id": trade.trade_id, "pair": trade.pair,
+            "signal_type": trade.entry_features.get("signal_type") if trade.entry_features else None,
+            "recovered_pl": round(pl, 2),
+        })
+    save_state()
+    return {
+        "reconciled": len(fixed),
+        "still_unknown": len(still_unknown),
+        "fixed": fixed,
+        "unresolved": still_unknown,
+        "learner": trade_learner.stats(),
+    }
+
+
 @router.get("/signal")
 async def current_signal():
     """Return the current signal for each configured pair WITHOUT placing a trade.
