@@ -59,14 +59,23 @@ def notify_trade_entry(
     )
 
 
-def notify_trade_close(pair: str, side: str, realized_pl: float) -> None:
+def notify_trade_close(pair: str, side: str, realized_pl: float, pl_unknown: bool = False) -> None:
+    display = pair.replace("_", "/")
+    if pl_unknown:
+        # P&L could not be confirmed from OANDA — never present this as a $0
+        # scratch, which would hide a real win or loss.
+        send(
+            f"⚠️ <b>Trade Closed</b> — {display}\n"
+            f"Side: {side.upper()} · P&L UNCONFIRMED\n"
+            f"Could not read realized P&L from OANDA — check the account."
+        )
+        return
     if realized_pl > 0:
         emoji, outcome = "✅", "WIN"
     elif realized_pl < 0:
         emoji, outcome = "❌", "LOSS"
     else:
         emoji, outcome = "➖", "SCRATCH"
-    display = pair.replace("_", "/")
     send(
         f"{emoji} <b>Trade Closed</b> — {display}\n"
         f"Side: {side.upper()} · {outcome}\n"

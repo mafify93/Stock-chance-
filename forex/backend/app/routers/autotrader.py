@@ -103,6 +103,7 @@ class ConfigPatch(BaseModel):
     use_mean_reversion: bool | None = None
     mr_adx_max: float | None = None
     mr_rr_ratio: float | None = None
+    mr_simple_exit: bool | None = None
     adx_threshold: float | None = None
 
 
@@ -199,6 +200,7 @@ class ConfigOut(BaseModel):
     use_mean_reversion: bool = False
     mr_adx_max: float = 20.0
     mr_rr_ratio: float = 1.0
+    mr_simple_exit: bool = True
     adx_threshold: float = 15.0
     max_leverage: float = 20.0
 

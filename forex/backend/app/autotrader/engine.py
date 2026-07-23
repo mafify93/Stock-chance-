@@ -177,6 +177,17 @@ async def _manage_trade(trade, now: datetime) -> None:
     if risk <= 0:
         return
 
+    # Mean-reversion exits on a clean OANDA SL/TP bracket, exactly as the
+    # backtest models it. The active-management overlay below (partial TP,
+    # breakeven, trailing runner, time-decay) was tuned for momentum's 2:1
+    # runners; applied to a 1:1 reversion trade it banks half at the target
+    # then lets the runner round-trip back to entry, realizing ~0.5R on wins
+    # while losers still take the full stop — an inverted payoff that turned a
+    # 60%-win-rate edge net-negative live. Skip it entirely for these trades.
+    signal_type = (trade.entry_features or {}).get("signal_type")
+    if cfg.mr_simple_exit and signal_type == "mean_reversion":
+        return
+
     # Fetch current mid price — shared by all checks below.
     try:
         pricing = await asyncio.to_thread(
@@ -501,28 +512,61 @@ async def sync_closed_trades() -> None:
         # book even though OANDA already closed it) up to MAX_PL_FETCH_RETRIES;
         # only after that do we finalize with pl_unknown=True so the $0 is
         # visibly flagged as "unconfirmed", never mistaken for a real scratch.
+        # Primary source: /trades/{id}.realizedPL. This endpoint intermittently
+        # returns "trade does not exist" for a freshly-closed trade, so on ANY
+        # failure (or a suspicious $0) we fall back to the immutable transaction
+        # stream, which always carries the real realizedPL on the closing fill.
+        realized_pl = None
         try:
             trade_data = await asyncio.to_thread(
                 oanda.get_trade, state.token, state.account_id, trade.trade_id, state.base_url
             )
-            realized_pl = float(trade_data.get("realizedPL") or 0)
-            _pl_fetch_retries.pop(trade.trade_id, None)
+            pl = trade_data.get("realizedPL")
+            if pl is not None:
+                realized_pl = float(pl)
         except Exception as exc:
+            log.info(
+                f"AutoTrader: /trades lookup failed for {trade.trade_id} "
+                f"({exc}); trying transaction stream"
+            )
+
+        # Fallback (or confirmation of a $0): read realized P&L from the
+        # transaction stream. Only trust a $0 from /trades if the transaction
+        # stream also has no closing fill P&L for this trade yet.
+        if realized_pl is None or realized_pl == 0.0:
+            try:
+                txn_pl = await asyncio.to_thread(
+                    oanda.get_realized_pl_from_transactions,
+                    state.token, state.account_id, trade.trade_id, state.base_url,
+                )
+                if txn_pl is not None:
+                    realized_pl = txn_pl
+            except Exception as exc:
+                log.warning(
+                    f"AutoTrader: transaction-stream P&L fetch failed for "
+                    f"{trade.trade_id}: {exc}"
+                )
+
+        if realized_pl is None:
+            # Neither source produced a P&L this scan — retry on later scans
+            # before giving up, so a transient blip never finalizes as a fake $0.
             attempts = _pl_fetch_retries.get(trade.trade_id, 0) + 1
             if attempts < MAX_PL_FETCH_RETRIES:
                 _pl_fetch_retries[trade.trade_id] = attempts
                 log.warning(
-                    f"AutoTrader: P&L fetch failed for closed trade {trade.trade_id} "
-                    f"(attempt {attempts}/{MAX_PL_FETCH_RETRIES}), will retry next scan: {exc}"
+                    f"AutoTrader: P&L unresolved for closed trade {trade.trade_id} "
+                    f"(attempt {attempts}/{MAX_PL_FETCH_RETRIES}), will retry next scan"
                 )
                 continue  # do NOT finalize yet — try again next scan
             log.error(
-                f"AutoTrader: P&L fetch failed {attempts}x for trade {trade.trade_id} — "
-                f"finalizing as pl_unknown (NOT a confirmed $0 scratch): {exc}"
+                f"AutoTrader: P&L unresolved {attempts}x for trade {trade.trade_id} — "
+                f"finalizing as pl_unknown (NOT a confirmed $0 scratch)"
             )
             realized_pl = 0.0
             with state._lock:
                 trade.pl_unknown = True
+            _pl_fetch_retries.pop(trade.trade_id, None)
+        else:
             _pl_fetch_retries.pop(trade.trade_id, None)
 
         with state._lock:
@@ -551,7 +595,9 @@ async def sync_closed_trades() -> None:
             f"daily P&L {state.daily_pl:+.2f}, "
             f"consecutive losses: {state.consecutive_losses}"
         )
-        telegram.notify_trade_close(trade.pair, trade.side, realized_pl)
+        telegram.notify_trade_close(
+            trade.pair, trade.side, realized_pl, pl_unknown=trade.pl_unknown
+        )
 
     # McKay step-down: recalculate risk_scale from consecutive_losses
     cl = state.consecutive_losses

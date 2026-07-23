@@ -124,6 +124,13 @@ class AutoTraderConfig:
     mr_adx_max: float = 20.0     # only fade when ADX(14) is BELOW this (ranging)
     mr_rr_ratio: float = 1.0     # reversion targets the mean, not a runner:
                                  # ~1:1 with a high win rate, vs momentum's 2:1
+    mr_simple_exit: bool = True  # mean-reversion trades ride their OANDA SL/TP
+                                 # bracket with NO active-management overlay
+                                 # (partial TP / breakeven / trail / time-decay).
+                                 # That overlay was tuned for momentum's 2:1 and
+                                 # clips a 1:1 reversion winner to ~0.5R while
+                                 # losers run full — and it isn't modelled in the
+                                 # backtest, so it made live diverge from tested.
 
     # --- ADX ranging-market gate ---
     # EMA entries are suppressed when ADX(14) falls below this threshold —

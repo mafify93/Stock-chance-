@@ -85,3 +85,44 @@ def test_place_market_order_builds_short_units(monkeypatch):
     assert order["instrument"] == "EUR_USD"
     assert order["type"] == "MARKET"
     assert order["stopLossOnFill"]["price"] == "1.10500"
+
+
+def test_realized_pl_from_transactions_reads_closing_fill(monkeypatch):
+    # Mirrors the real stream that broke the /trades lookup: trade 1307 opened
+    # at txn 1307 and was closed by a stop-loss fill (1310) carrying the real
+    # realizedPL in tradesClosed. The trades endpoint returned "does not exist";
+    # this must still recover -494.94 from the transaction record.
+    body = {
+        "transactions": [
+            {"id": "1308", "type": "TAKE_PROFIT_ORDER"},
+            {"id": "1309", "type": "STOP_LOSS_ORDER"},
+            {"id": "1310", "type": "ORDER_FILL", "reason": "STOP_LOSS_ORDER",
+             "tradesClosed": [{"tradeID": "1307", "realizedPL": "-494.9441"}]},
+        ]
+    }
+    monkeypatch.setattr(httpx, "request", lambda *a, **k: _mock_response(body))
+    pl = oanda.get_realized_pl_from_transactions("tok", "acct", "1307")
+    assert pl == pytest.approx(-494.9441)
+
+
+def test_realized_pl_from_transactions_none_when_not_closed_yet(monkeypatch):
+    # No closing fill references this trade yet → None (must NOT be read as $0).
+    body = {"transactions": [{"id": "1308", "type": "TAKE_PROFIT_ORDER"}]}
+    monkeypatch.setattr(httpx, "request", lambda *a, **k: _mock_response(body))
+    assert oanda.get_realized_pl_from_transactions("tok", "acct", "1307") is None
+
+
+def test_realized_pl_from_transactions_sums_partial_and_final(monkeypatch):
+    # Partial close (tradeReduced) plus final close (tradesClosed) sum together.
+    body = {
+        "transactions": [
+            {"id": "1311", "type": "ORDER_FILL", "reason": "MARKET_ORDER_TRADE_CLOSE",
+             "tradeReduced": {"tradeID": "1307", "realizedPL": "100.0"}},
+            {"id": "1312", "type": "ORDER_FILL", "reason": "STOP_LOSS_ORDER",
+             "tradesClosed": [{"tradeID": "1307", "realizedPL": "-30.0"},
+                              {"tradeID": "9999", "realizedPL": "500.0"}]},
+        ]
+    }
+    monkeypatch.setattr(httpx, "request", lambda *a, **k: _mock_response(body))
+    # Only 1307's entries count (100 - 30 = 70); the unrelated 9999 is ignored.
+    assert oanda.get_realized_pl_from_transactions("tok", "acct", "1307") == pytest.approx(70.0)
