@@ -217,6 +217,7 @@ class StatusOut(BaseModel):
     open_positions: int
     consecutive_losses: int
     risk_scale: float
+    account_start_balance: float | None = None
     config: ConfigOut
     recent_trades: list[TradeOut]
 
@@ -241,6 +242,7 @@ async def get_status():
         open_positions=len(s.open_trades),
         consecutive_losses=s.consecutive_losses,
         risk_scale=s.risk_scale,
+        account_start_balance=s.account_start_balance,
         config=ConfigOut(**cfg.__dict__),
         recent_trades=[
             TradeOut(
@@ -890,6 +892,23 @@ async def learner_reset():
         "model_active": False,
         "trades_until_active": trade_learner.MIN_TRADES,
     }
+
+
+@router.post("/set-prop-base")
+async def set_prop_base(balance: float):
+    """Explicitly anchor the prop-mode drawdown base balance.
+
+    prop_mode otherwise sets the base to whatever the NAV happens to be when
+    it's first switched on. This pins it to a chosen reference (e.g. the real
+    account inception balance) so the max-drawdown halt measures from there,
+    not from wherever the switch was flipped. Set this BEFORE enabling
+    prop_mode (the engine only auto-fills the base when it is still unset)."""
+    if balance <= 0:
+        raise HTTPException(400, detail="balance must be positive")
+    with bot_state._lock:
+        bot_state.account_start_balance = balance
+    save_state()
+    return {"account_start_balance": bot_state.account_start_balance}
 
 
 @router.post("/reconcile-pl")
