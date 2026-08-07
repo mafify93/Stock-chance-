@@ -171,6 +171,9 @@ class TestBreakevenStop:
         cfg_off.h1_trend_filter = False
         cfg_off.breakeven_stop = False
         cfg_off.min_confidence = 0.0  # testing exit mechanics, not signal quality
+        cfg_off.pair_overrides = {}   # use the explicit config, not EUR_USD's profile
+        cfg_off.use_ema_fallback = True   # mechanics tests drive trades via the EMA path
+        cfg_off.use_mean_reversion = False
         trades_off, _ = simulate_pair("EUR_USD", df, cfg_off, 1.0, 1000.0)
 
         cfg_on = AutoTraderConfig()
@@ -178,6 +181,9 @@ class TestBreakevenStop:
         cfg_on.h1_trend_filter = False
         cfg_on.breakeven_stop = True
         cfg_on.min_confidence = 0.0  # testing exit mechanics, not signal quality
+        cfg_on.pair_overrides = {}    # use the explicit config, not EUR_USD's profile
+        cfg_on.use_ema_fallback = True    # mechanics tests drive trades via the EMA path
+        cfg_on.use_mean_reversion = False
         trades_on, _ = simulate_pair("EUR_USD", df, cfg_on, 1.0, 1000.0)
 
         assert trades_on and trades_off
@@ -211,5 +217,8 @@ class TestBreakevenStop:
         cfg.breakeven_stop = True
         cfg.ema_session_window = False  # test breakeven mechanic across full time range
         cfg.min_confidence = 0.0  # testing exit mechanics, not signal quality
+        cfg.pair_overrides = {}    # use the explicit config, not EUR_USD's profile
+        cfg.use_ema_fallback = True   # mechanics tests drive trades via the EMA path
+        cfg.use_mean_reversion = False
         trades, _ = simulate_pair("EUR_USD", df, cfg, 1.0, 1000.0)
         assert any(t.outcome == "breakeven" for t in trades)

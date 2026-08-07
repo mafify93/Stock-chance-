@@ -173,6 +173,52 @@ def get_account_summary(token: str, account_id: str, base_url: str = PRACTICE_BA
     return data.get("account", {})
 
 
+def get_instrument_margin_rate(
+    pair: str, token: str, account_id: str, base_url: str = PRACTICE_BASE_URL
+) -> float | None:
+    """The account's ACTUAL margin rate for one instrument (e.g. 0.05 = 20:1,
+    0.10 = 10:1). This is per-account — practice accounts can be configured
+    with far lower leverage than the jurisdiction maximum, so sizing must use
+    this real number rather than an assumed cap."""
+    instrument = pips.normalize(pair)
+    data = _request(
+        "GET",
+        f"/accounts/{account_id}/instruments",
+        token,
+        base_url,
+        params={"instruments": instrument},
+    )
+    for inst in data.get("instruments", []):
+        if inst.get("name") == instrument:
+            mr = inst.get("marginRate")
+            try:
+                return float(mr) if mr else None
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def get_instrument_details(
+    pair: str, token: str, account_id: str, base_url: str = PRACTICE_BASE_URL
+) -> dict | None:
+    """Raw OANDA instrument metadata: pipLocation, displayPrecision,
+    marginRate, minimumTradeSize, tradeUnitsPrecision. Source of truth for
+    pip sizing on non-standard instruments (e.g. XAU_USD) instead of
+    assuming the usual 4-decimal forex convention."""
+    instrument = pips.normalize(pair)
+    data = _request(
+        "GET",
+        f"/accounts/{account_id}/instruments",
+        token,
+        base_url,
+        params={"instruments": instrument},
+    )
+    for inst in data.get("instruments", []):
+        if inst.get("name") == instrument:
+            return inst
+    return None
+
+
 def get_open_positions(token: str, account_id: str, base_url: str = PRACTICE_BASE_URL) -> list[dict]:
     data = _request("GET", f"/accounts/{account_id}/openPositions", token, base_url)
     return data.get("positions", [])
@@ -253,6 +299,50 @@ def get_trade(token: str, account_id: str, trade_id: str, base_url: str = PRACTI
     """
     data = _request("GET", f"/accounts/{account_id}/trades/{trade_id}", token, base_url)
     return data.get("trade", {})
+
+
+def get_realized_pl_from_transactions(
+    token: str, account_id: str, trade_id: str, base_url: str = PRACTICE_BASE_URL
+) -> float | None:
+    """Sum the realized P&L a trade booked, read from the immutable transaction
+    stream rather than the /trades/{id} lookup.
+
+    The trades endpoint intermittently returns "trade does not exist" for
+    freshly-closed trades, which used to leave the close finalized as an
+    unconfirmed $0. The transaction record never has that problem: every
+    closing fill (SL/TP/market close) carries a `tradesClosed` (or
+    `tradeReduced`) entry with the exact `realizedPL` for the trade it closed.
+    We fetch all transactions since the opening ID and total every realizedPL
+    attributed to this trade_id.
+
+    Returns the summed realized P&L (float), or None if no closing fill
+    referencing this trade is found yet (caller should treat None as
+    "not confirmed", NOT as $0).
+    """
+    data = _request(
+        "GET",
+        f"/accounts/{account_id}/transactions/sinceid",
+        token,
+        base_url,
+        params={"id": trade_id},
+    )
+    total = 0.0
+    found = False
+    for txn in data.get("transactions", []):
+        if txn.get("type") != "ORDER_FILL":
+            continue
+        closed = list(txn.get("tradesClosed") or [])
+        reduced = txn.get("tradeReduced")
+        if reduced:
+            closed.append(reduced)
+        for c in closed:
+            if str(c.get("tradeID")) == str(trade_id):
+                try:
+                    total += float(c.get("realizedPL") or 0)
+                    found = True
+                except (TypeError, ValueError):
+                    pass
+    return total if found else None
 
 
 def close_trade(token: str, account_id: str, trade_id: str, base_url: str = PRACTICE_BASE_URL) -> dict:

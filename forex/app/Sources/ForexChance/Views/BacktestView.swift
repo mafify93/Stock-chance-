@@ -18,6 +18,9 @@ struct BacktestView: View {
                     }
                     if let result = vm.backtestResult {
                         summaryCard(result)
+                        if let wf = result.walkForward {
+                            walkForwardCard(wf, fullMaxDrawdownPct: result.overall.maxDrawdownPct)
+                        }
                         equityCurveCard(result)
                         if let strategies = result.perStrategy, !strategies.isEmpty {
                             perStrategyCard(strategies)
@@ -73,7 +76,7 @@ struct BacktestView: View {
             }
 
             backtestSlider(label: "Spread cost (pips)", value: $vm.backtestSpreadPips, range: 0.5...3.0, step: 0.25, format: "%.1f")
-            backtestSlider(label: "Starting NAV ($)", value: $vm.backtestStartingNav, range: 200...10000, step: 200, format: "%.0f")
+            backtestSlider(label: "Starting NAV ($)", value: $vm.backtestStartingNav, range: 200...100000, step: 1000, format: "%.0f")
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("Pairs")
@@ -194,6 +197,80 @@ struct BacktestView: View {
                 Text(Format.money(result.endingNav))
                     .font(.caption.monospacedDigit())
                     .foregroundColor(result.endingNav >= result.startingNav ? Theme.profit : Theme.loss)
+            }
+        }
+        .cardStyle()
+    }
+
+    // MARK: - Walk-forward (out-of-sample) validation
+
+    private func walkForwardCard(_ wf: WalkForwardModel, fullMaxDrawdownPct: Double) -> some View {
+        let o = wf.overall
+        let ret = o.returnPct
+        let dd = o.maxDrawdownPct
+        // FTMO safety must use the WORST drawdown the challenge could face — the
+        // full backtest period, not just the calm out-of-sample slice.
+        let worstDD = max(dd, fullMaxDrawdownPct)
+        let passed = ret > 0 && o.profitFactor >= 1.0 && wf.tradeCount >= 5
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Walk-Forward Test")
+                    .font(.caption)
+                    .foregroundColor(Theme.textSecondary)
+                    .textCase(.uppercase)
+                Spacer()
+                Text(passed ? "✓ EDGE HOLDS" : "⚠︎ WEAK OOS")
+                    .font(.caption2.bold())
+                    .foregroundColor(passed ? Theme.profit : Theme.loss)
+            }
+
+            Text("Trained on first \(wf.trainPct)% of data, tested on the last \(wf.testPct)% it never saw. If these stay positive, the edge is real — not curve-fit.")
+                .font(.caption2)
+                .foregroundColor(Theme.textSecondary)
+
+            HStack(spacing: 0) {
+                StatTile(
+                    label: "OOS Return",
+                    value: String(format: "%@%.1f%%", ret >= 0 ? "+" : "", ret),
+                    valueColor: ret >= 0 ? Theme.profit : Theme.loss
+                )
+                StatTile(
+                    label: "OOS Win",
+                    value: String(format: "%.0f%%", o.winRatePct),
+                    valueColor: o.winRatePct >= 50 ? Theme.profit : Theme.loss
+                )
+                StatTile(
+                    label: "OOS Trades",
+                    value: "\(wf.tradeCount)"
+                )
+                StatTile(
+                    label: "OOS PF",
+                    value: o.profitFactor < 99 ? String(format: "%.2f", o.profitFactor) : "∞",
+                    valueColor: o.profitFactor >= 1 ? Theme.profit : Theme.loss
+                )
+            }
+
+            HStack(spacing: 0) {
+                StatTile(
+                    label: "OOS Max DD",
+                    value: String(format: "-%.1f%%", dd),
+                    valueColor: dd > 8 ? Theme.loss : Theme.profit
+                )
+                StatTile(
+                    label: "Calmar",
+                    value: o.calmarRatio.map { String(format: "%.2f", $0) } ?? "—",
+                    valueColor: (o.calmarRatio ?? 0) >= 1.0 ? Theme.profit : Theme.accent
+                )
+                StatTile(
+                    label: "FTMO DD?",
+                    value: worstDD < 8 ? "✓ Safe" : "✗ Risk",
+                    valueColor: worstDD < 8 ? Theme.profit : Theme.loss
+                )
+                StatTile(
+                    label: "Worst DD",
+                    value: String(format: "-%.1f%%", worstDD),
+                    valueColor: worstDD < 8 ? Theme.profit : Theme.loss
+                )
             }
         }
         .cardStyle()

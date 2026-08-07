@@ -44,6 +44,8 @@ struct AutoTradeRecord: Codable, Identifiable, Hashable {
     var status: String        // "open" | "closed"
     var closedAt: String?
     var realizedPl: Double?
+    var plUnknown: Bool = false   // true = OANDA's real P&L couldn't be fetched;
+                                  // realizedPl is a placeholder 0, NOT a confirmed scratch
 
     var id: String { "\(pair)-\(tradeId)" }
     var isOpen: Bool { status == "open" }
@@ -179,6 +181,16 @@ struct BacktestTradeModel: Codable, Identifiable {
     }
 }
 
+struct WalkForwardModel: Codable {
+    var trainPct: Int
+    var testPct: Int
+    var startingNav: Double
+    var endingNav: Double
+    var overall: BacktestStatsModel
+    var perPair: [BacktestStatsModel]?
+    var tradeCount: Int
+}
+
 struct BacktestResult: Codable {
     var startingNav: Double
     var endingNav: Double
@@ -189,6 +201,7 @@ struct BacktestResult: Codable {
     var trades: [BacktestTradeModel]
     var errors: [String]
     var barsPerPair: Int
+    var walkForward: WalkForwardModel?
 
     var returnPct: Double {
         guard startingNav > 0 else { return 0 }

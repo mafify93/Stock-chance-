@@ -13,6 +13,9 @@ from dataclasses import dataclass, field
 class AutoTraderConfig:
     # --- Risk / sizing ---
     risk_pct: float = 0.01          # fraction of NAV to risk per trade (1 %)
+    max_leverage: float = 20.0      # cap position notional at this × NAV so orders
+                                    # don't get cancelled for INSUFFICIENT_MARGIN
+                                    # (OANDA retail majors ~30:1; 20 leaves a buffer)
     rr_ratio: float = 2.0           # reward-to-risk ratio for take-profit placement
     min_stop_pips: float = 12.0     # clamp stop distance from below
     max_stop_pips: float = 30.0     # clamp stop distance from above
@@ -28,6 +31,19 @@ class AutoTraderConfig:
     daily_loss_halt_pct: float = 0.03  # pause trading today if daily P&L drops below
                                        # this fraction of start-of-day balance (3%);
                                        # resets automatically next session. 0 = disabled.
+
+    # --- Prop-firm challenge mode ---
+    # Funded-account evaluations (FTMO, Topstep, etc.) fail you the instant
+    # equity breaches a daily-loss or max-total-loss limit. These guardrails halt
+    # the bot BEFORE those limits with a safety buffer, so a challenge can't be
+    # blown. The buffers are deliberately tighter than the typical firm limits
+    # (5% daily / 10% total) because an open position's floating loss can move
+    # equity between scans. When prop_mode is on, the engine measures drawdown
+    # from a fixed account_start_balance that never resets daily.
+    prop_mode: bool = False
+    prop_daily_loss_pct: float = 0.04    # halt for the day at -4% (firms fail at ~5%)
+    prop_max_total_loss_pct: float = 0.08  # halt permanently at -8% from start (fail at ~10%)
+    prop_profit_target_pct: float = 0.10   # stop & lock in once +10% target is reached
 
     # --- Entry filters ---
     min_confidence: float = 0.70    # minimum intraday signal confidence (0–1 scale)
@@ -83,7 +99,11 @@ class AutoTraderConfig:
     # only ICT strategies (London Breakout, ICT Sweep, Silver Bullet) run.
     # Use this in the backtest to isolate London Breakout's standalone edge —
     # if Calmar improves without EMA, the EMA is the leak.
-    use_ema_fallback: bool = True
+    use_ema_fallback: bool = False  # momentum leg OFF (2026-07-10): live 20% WR over
+                                     # 15 trades and OOS PF 0.33 in the current regime;
+                                     # MR-only dominates combined on every metric
+                                     # (Calmar 4.07 vs 1.64, DD 7.1% vs 13.4%).
+                                     # Re-enable only after it re-proves in backtest.
 
     # --- EMA session time window ---
     # The session_filter gates on "London or NY open" — a 10-hour window that
@@ -91,8 +111,44 @@ class AutoTraderConfig:
     # crossovers are pure ranging-market noise. Restricting EMA to the two
     # genuine momentum windows cuts eligible bars by ~60% while keeping the
     # trades that actually follow through.
-    ema_session_window: bool = True  # only allow EMA fallback 07:00–09:30 UTC (London open)
-                                     # and 13:30–15:30 UTC (NY open momentum)
+    ema_session_window: bool = False  # backtest proved harmful — cuts 75% of trades and drops
+                                      # WR from 61% → 40%; session_filter alone is sufficient
+
+    # --- Mean reversion (range-regime complement to the momentum strategy) ---
+    # Momentum bleeds in ranges; this fades Bollinger-band extremes back to
+    # the mean ONLY while ADX says the market is ranging. Validated 2026-07-09:
+    # standalone 69% WR / PF 2.38 full period, 82% WR / PF 3.89 OOS; combined
+    # with EMA both legs profitable. Default ON so app-initiated bot restarts
+    # (which send a fresh default config) don't silently disable it.
+    use_mean_reversion: bool = True
+    mr_adx_max: float = 20.0     # only fade when ADX(14) is BELOW this (ranging)
+    mr_rr_ratio: float = 1.0     # reversion targets the mean, not a runner:
+                                 # ~1:1 with a high win rate, vs momentum's 2:1
+    mr_simple_exit: bool = True  # mean-reversion trades ride their OANDA SL/TP
+                                 # bracket with NO active-management overlay
+                                 # (partial TP / breakeven / trail / time-decay).
+                                 # That overlay was tuned for momentum's 2:1 and
+                                 # clips a 1:1 reversion winner to ~0.5R while
+                                 # losers run full — and it isn't modelled in the
+                                 # backtest, so it made live diverge from tested.
+
+    # --- ADX ranging-market gate ---
+    # EMA entries are suppressed when ADX(14) falls below this threshold —
+    # below it the market is ranging and EMA crossovers are noise, not signal.
+    # Default 15 is the original, validated value. Raising it (e.g. 20-22)
+    # excludes the ADX 14-19 "borderline trend" zone where false breakouts
+    # cluster — tested via /backtest-live A/B before changing the live default.
+    adx_threshold: float = 15.0
+
+    # --- Per-pair active trading hours (UTC) ---
+    # When set (via a pair's override profile), restricts that pair to its genuine
+    # high-liquidity directional hours instead of the generic London+NY window.
+    # This is the single biggest per-pair edge driver: each currency trends during
+    # its own financial centre's session. Trading USD/JPY during dead London hours
+    # (when it just chops) is what produced its 7% win rate. Format: list of
+    # [start_hour, end_hour) UTC windows, e.g. [[13, 16]]. None = no restriction
+    # beyond the standard session_filter.
+    active_hours_utc: list | None = None
 
     # --- NY open momentum alignment ---
     use_ny_open_momentum_filter: bool = True  # during 13:00–16:00 UTC, only take EMA entries
@@ -113,10 +169,109 @@ class AutoTraderConfig:
     atr_expansion_lookback: int = 20        # number of M5 bars to average ATR over for the check
 
     # --- Universe ---
-    # EUR/JPY: 41% WR, Calmar 4.08 — sole live pair.
-    # GBP/JPY tested at 28% WR (net-negative risk-adjusted); USD/JPY untested.
-    # Adding weaker pairs dilutes the equity curve and raises drawdown without
-    # proportional reward — keep single best-edge pair only.
+    # EUR/JPY: 41% WR, Calmar 4.08 — proven primary pair.
+    # Additional pairs are tuned via per-pair profiles below and must each pass
+    # a standalone backtest (positive PF + Calmar) before being added here.
     pairs: list[str] = field(default_factory=lambda: [
         "EUR_JPY",
     ])
+
+    # --- Per-pair tuning profiles ---
+    # The global defaults above are tuned for EUR/JPY. Other pairs have different
+    # volatility, spread, and trend personality, so running one-size-fits-all
+    # settings on them fails (GBP/JPY scored 28% WR that way). Each entry here
+    # overrides only the listed fields for that pair; anything omitted falls back
+    # to the global default. Resolve with `cfg.resolved_for(pair)`.
+    #
+    # These are *researched starting points*, not validated numbers — backtest
+    # each pair ALONE in the app and only add a pair to `pairs` once it shows a
+    # positive profit factor and Calmar on its own.
+    # Confidence is kept at the EUR/JPY-proven 0.68–0.70 so each pair generates
+    # a statistically meaningful sample (a 0.75+ bar choked them to 3–4 trades
+    # over 2 weeks — too few to judge). The real per-pair differentiation is in
+    # stop sizing and spread tolerance, matched to each pair's volatility.
+    pair_overrides: dict = field(default_factory=lambda: {
+        # GBP/JPY: most volatile major-cross. Big trends but whippy/news-spiky
+        # with naturally wider spreads — give stops more room, tolerate spread.
+        # Active hours: London open is when GBP and JPY desks overlap and the
+        # pair makes its cleanest directional moves; it chops the rest of the day.
+        "GBP_JPY": {
+            "min_confidence": 0.70,
+            "rr_ratio": 2.0,
+            "min_stop_pips": 15.0,
+            "max_stop_pips": 40.0,
+            "max_spread_pips": 3.5,
+            "active_hours_utc": [[7, 11]],          # London open
+        },
+        # EUR/USD: lowest volatility, tightest spread, ranges more than it trends.
+        # Tighter stops to match its smaller daily range, tight spread gate.
+        # Active hours: the London–NY overlap (12:00–16:00 UTC) is the only window
+        # EUR/USD reliably trends; outside it the pair ranges and momentum logic
+        # whipsaws (the 22% WR came from trading it all day).
+        "EUR_USD": {
+            "min_confidence": 0.68,
+            "rr_ratio": 2.0,
+            "min_stop_pips": 8.0,
+            "max_stop_pips": 22.0,
+            "max_spread_pips": 1.5,
+            "active_hours_utc": [[12, 16]],         # London–NY overlap
+        },
+        # GBP/USD ("cable"): moderate volatility, trends well at London/NY open.
+        # Two genuine momentum windows: London open and the NY-overlap morning.
+        "GBP_USD": {
+            "min_confidence": 0.68,
+            "rr_ratio": 2.0,
+            "min_stop_pips": 10.0,
+            "max_stop_pips": 28.0,
+            "max_spread_pips": 2.0,
+            "active_hours_utc": [[7, 10], [13, 16]],  # London open + NY overlap
+        },
+        # USD/JPY: trends smoothly, tight spread, moderate range. JPY trades on
+        # the Tokyo session and USD on the NY session, so its directional moves
+        # cluster at the Tokyo open and the NY morning — NOT during London, where
+        # one-size-fits-all timing trapped it into a 7% win rate.
+        "USD_JPY": {
+            "min_confidence": 0.68,
+            "rr_ratio": 2.0,
+            "min_stop_pips": 10.0,
+            "max_stop_pips": 28.0,
+            "max_spread_pips": 1.8,
+            "active_hours_utc": [[0, 3], [13, 16]],   # Tokyo open + NY morning
+        },
+    })
+
+    def resolved_for(self, pair: str) -> "AutoTraderConfig":
+        """Return a copy of this config with the pair's overrides applied.
+
+        Fields not listed in the pair's override entry keep the global value.
+        Pairs with no entry get an unmodified copy. Used by both the live engine
+        and the backtester so each pair trades with settings suited to its
+        volatility/spread personality instead of one-size-fits-all values.
+        """
+        import dataclasses
+
+        overrides = (self.pair_overrides or {}).get(pair)
+        if not overrides:
+            return self
+        valid = {f.name for f in dataclasses.fields(self)}
+        clean = {k: v for k, v in overrides.items() if k in valid}
+        return dataclasses.replace(self, **clean)
+
+    def in_active_hours(self, hour_utc: int) -> bool:
+        """True if `hour_utc` falls in one of this config's active_hours_utc
+        windows. Returns True when no windows are configured (no restriction).
+
+        Each window is [start, end) in UTC hours. Windows may wrap midnight
+        (start > end), e.g. [22, 2] covers 22:00–01:59.
+        """
+        windows = self.active_hours_utc
+        if not windows:
+            return True
+        for start, end in windows:
+            if start <= end:
+                if start <= hour_utc < end:
+                    return True
+            else:  # wraps midnight
+                if hour_utc >= start or hour_utc < end:
+                    return True
+        return False

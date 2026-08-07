@@ -557,7 +557,14 @@ private struct AutoTradeRow: View {
                     Text(trade.isOpen ? "OPEN" : "CLOSED")
                         .font(.caption.bold())
                         .foregroundColor(trade.isOpen ? Theme.profit : Theme.textSecondary)
-                    if let pl = trade.realizedPl {
+                    if trade.plUnknown {
+                        // P&L fetch from OANDA failed after retries — this is NOT a
+                        // confirmed $0 scratch. Flag it instead of showing a misleading
+                        // neutral number that reads as "nothing happened".
+                        Text("P&L UNCONFIRMED")
+                            .font(.caption2.bold())
+                            .foregroundColor(Theme.accent)
+                    } else if let pl = trade.realizedPl {
                         Text(Format.signedMoney(pl))
                             .font(.caption.bold())
                             .foregroundColor(pl >= 0 ? Theme.profit : Theme.loss)

@@ -52,6 +52,7 @@ class StartRequest(BaseModel):
     min_confidence: float | None = None
     session_filter: bool | None = None
     pairs: list[str] | None = None
+    prop_mode: bool | None = None
 
 
 class ConfigPatch(BaseModel):
@@ -95,6 +96,15 @@ class ConfigPatch(BaseModel):
     use_ny_open_momentum_filter: bool | None = None
     ema_session_window: bool | None = None
     use_ema_fallback: bool | None = None
+    prop_mode: bool | None = None
+    prop_daily_loss_pct: float | None = None
+    prop_max_total_loss_pct: float | None = None
+    prop_profit_target_pct: float | None = None
+    use_mean_reversion: bool | None = None
+    mr_adx_max: float | None = None
+    mr_rr_ratio: float | None = None
+    mr_simple_exit: bool | None = None
+    adx_threshold: float | None = None
 
 
 class BacktestRequest(BaseModel):
@@ -136,6 +146,8 @@ class TradeOut(BaseModel):
     status: str
     closed_at: str | None = None
     realized_pl: float | None = None
+    pl_unknown: bool = False
+    signal_type: str | None = None
 
 
 class ConfigOut(BaseModel):
@@ -181,6 +193,16 @@ class ConfigOut(BaseModel):
     use_ny_open_momentum_filter: bool
     ema_session_window: bool
     use_ema_fallback: bool
+    prop_mode: bool = False
+    prop_daily_loss_pct: float = 0.04
+    prop_max_total_loss_pct: float = 0.08
+    prop_profit_target_pct: float = 0.10
+    use_mean_reversion: bool = False
+    mr_adx_max: float = 20.0
+    mr_rr_ratio: float = 1.0
+    mr_simple_exit: bool = True
+    adx_threshold: float = 15.0
+    max_leverage: float = 20.0
 
 
 class StatusOut(BaseModel):
@@ -195,6 +217,7 @@ class StatusOut(BaseModel):
     open_positions: int
     consecutive_losses: int
     risk_scale: float
+    account_start_balance: float | None = None
     config: ConfigOut
     recent_trades: list[TradeOut]
 
@@ -219,8 +242,15 @@ async def get_status():
         open_positions=len(s.open_trades),
         consecutive_losses=s.consecutive_losses,
         risk_scale=s.risk_scale,
+        account_start_balance=s.account_start_balance,
         config=ConfigOut(**cfg.__dict__),
-        recent_trades=[TradeOut(**t.__dict__) for t in recent],
+        recent_trades=[
+            TradeOut(
+                **{k: v for k, v in t.__dict__.items() if k not in ("entry_features", "partial_closed", "breakeven_set", "peak_profit_r", "init_risk")},
+                signal_type=t.entry_features.get("signal_type"),
+            )
+            for t in recent
+        ],
     )
 
 
@@ -239,6 +269,7 @@ async def start_bot(req: StartRequest):
     for field in (
         "risk_pct", "max_positions", "max_trades_per_day",
         "rr_ratio", "max_spread_pips", "min_confidence", "session_filter", "pairs",
+        "prop_mode",
     ):
         val = getattr(req, field, None)
         if val is not None:
@@ -252,6 +283,9 @@ async def start_bot(req: StartRequest):
         bot_state.running = True
         bot_state.halted = False
         bot_state.halt_reason = ""
+        # Fresh start = fresh challenge: re-base the prop max-loss / target floor
+        # on the next scan's NAV (cleared here so the engine recaptures it).
+        bot_state.account_start_balance = None
 
     # Re-populate open trades from OANDA so guards stay accurate after restarts.
     await resync_open_trades()
@@ -308,11 +342,9 @@ async def backtest(req: BacktestRequest):
             setattr(cfg, field, val)
 
     pairs = req.pairs or cfg.pairs
-    # Cap bars at 3000 (≈10 trading days): beyond this the computation time on
-    # a shared Render instance exceeds mobile client timeouts without adding
-    # meaningful statistical sample size. 5000-bar backtests can be run by
-    # lowering bars in the app settings.
-    bars = max(100, min(req.bars, 3000))
+    # Cap bars at 5000 — OANDA's hard per-request limit for candle count
+    # (≈3.5 trading weeks of M5). Higher would need paginated fetches.
+    bars = max(100, min(req.bars, 5000))
 
     candles_by_pair: dict = {}
     h1_by_pair: dict = {}
@@ -377,6 +409,351 @@ async def backtest(req: BacktestRequest):
     result["errors"] = errors
     result["bars_per_pair"] = bars
     return result
+
+
+@router.post("/trend-backtest")
+async def trend_backtest(
+    pairs: str = "XAU_USD",
+    granularity: str = "H4",
+    bars: int = 5000,
+    entry_n: int = 20,
+    exit_n: int = 10,
+    atr_n: int = 14,
+    stop_atr: float = 2.0,
+    ma_n: int = 100,
+    risk_frac: float = 0.01,
+    spread_pips: float = 2.0,
+    walk_forward_pct: float = 0.3,
+):
+    """Higher-timeframe trend-following research (Donchian breakout).
+
+    Fetches `bars` candles at `granularity` (H1/H4/D) — where the 5000-bar cap
+    buys months-to-years of history instead of the M5 window's ~3.5 weeks — and
+    runs the trend simulator per pair, using the bot's stored credentials.
+    Reports R-multiple expectancy, a compounded equity curve, walk-forward, and
+    the top-3-trade concentration so a fragile (few-lucky-trades) result is
+    visible rather than mistaken for an edge. Does NOT touch live config."""
+    state = bot_state
+    if not state.token or not state.account_id:
+        raise HTTPException(400, detail="No stored credentials — start the bot once so it caches your OANDA token.")
+
+    from ..autotrader.trend_research import TrendParams, run_trend_research
+
+    pair_list = [p.strip().upper() for p in pairs.split(",") if p.strip()]
+    bars = max(200, min(bars, 5000))
+    p = TrendParams(
+        entry_n=entry_n, exit_n=exit_n, atr_n=atr_n, stop_atr=stop_atr,
+        ma_n=ma_n, risk_frac=risk_frac, spread_pips=spread_pips,
+    )
+    base_url = state.base_url
+    results: dict = {}
+    errors: list[str] = []
+
+    async def _one(pair: str) -> None:
+        try:
+            df = await asyncio.to_thread(
+                oanda.get_candles, pair, state.token, granularity, bars, base_url
+            )
+            if len(df) < 200:
+                errors.append(f"{pair}: only {len(df)} {granularity} bars")
+                return
+            res = await asyncio.to_thread(run_trend_research, df, pair, p, walk_forward_pct)
+            # Drop the per-trade list from the multi-pair summary to keep it small.
+            res["full"].pop("trades_list", None)
+            if "walk_forward" in res:
+                res["walk_forward"].pop("trades_list", None)
+            results[pair] = res
+        except Exception as exc:
+            errors.append(f"{pair}: {exc}")
+
+    try:
+        await asyncio.wait_for(asyncio.gather(*[_one(p) for p in pair_list]), timeout=110)
+    except asyncio.TimeoutError:
+        raise HTTPException(504, detail="Trend backtest timed out fetching/among pairs.")
+
+    return {
+        "granularity": granularity,
+        "bars_requested": bars,
+        "params": p.__dict__,
+        "results": results,
+        "errors": errors,
+    }
+
+
+@router.post("/backtest-live")
+async def backtest_live(
+    bars: int = 3000,
+    walk_forward_pct: float = 0.3,
+    spread_pips: float = 1.2,
+    adx_threshold: float | None = None,
+    use_mean_reversion: bool | None = None,
+    use_ema_fallback: bool | None = None,
+    mr_rr_ratio: float | None = None,
+    mr_adx_max: float | None = None,
+    pairs: str | None = None,
+    min_stop_pips: float | None = None,
+    max_stop_pips: float | None = None,
+):
+    """Run a backtest using the RUNNING bot's stored credentials and its EXACT
+    current live config (risk %, confidence, R:R, pairs, all filters).
+
+    This is the honest "what would we actually make" test: it pulls the most
+    recent `bars` of real candles for the configured pairs and replays them
+    through the live settings, including a walk-forward out-of-sample split.
+    Starting NAV is the account's real NAV so the dollar figure is real.
+
+    `adx_threshold` overrides the live config's ADX ranging-market cutoff for
+    THIS backtest only (doesn't touch the live/persisted config) — lets you
+    A/B a stricter threshold against the exact same historical data.
+
+    `pairs` overrides the live config's pair universe for THIS backtest only,
+    e.g. `pairs=CAD_JPY` or `pairs=EUR_JPY,CAD_JPY` — lets you test a pair
+    that isn't (yet) in the live rotation using the bot's stored credentials,
+    without touching the live/persisted config.
+    """
+    state = bot_state
+    if not state.token or not state.account_id:
+        raise HTTPException(400, detail="Bot is not running — no stored credentials to backtest with.")
+
+    import dataclasses
+    cfg = state.config            # the real, current live configuration
+    pairs_override = (
+        [p.strip().upper() for p in pairs.split(",") if p.strip()]
+        if pairs is not None else None
+    )
+    overrides = {
+        k: v for k, v in {
+            "adx_threshold": adx_threshold,
+            "use_mean_reversion": use_mean_reversion,
+            "use_ema_fallback": use_ema_fallback,
+            "mr_rr_ratio": mr_rr_ratio,
+            "mr_adx_max": mr_adx_max,
+            "pairs": pairs_override,
+            "min_stop_pips": min_stop_pips,
+            "max_stop_pips": max_stop_pips,
+        }.items() if v is not None
+    }
+    if overrides:
+        cfg = dataclasses.replace(cfg, **overrides)
+    base_url = state.base_url
+    pairs = cfg.pairs
+    bars = max(100, min(bars, 5000))  # OANDA hard per-request candle limit
+
+    # Real account NAV so the P&L is in real dollars.
+    starting_nav = 10000.0
+    try:
+        acct = await asyncio.to_thread(
+            oanda.get_account_summary, state.token, state.account_id, base_url
+        )
+        starting_nav = float(acct.get("NAV") or acct.get("balance") or 10000.0)
+    except Exception:
+        pass
+
+    candles_by_pair: dict = {}
+    h1_by_pair: dict = {}
+    errors: list[str] = []
+
+    async def _load_pair(pair: str) -> None:
+        try:
+            df = await asyncio.to_thread(
+                oanda.get_candles, pair, state.token, "M5", bars, base_url
+            )
+            if len(df) >= 50:
+                candles_by_pair[pair] = df
+            else:
+                errors.append(f"{pair}: only {len(df)} M5 bars returned, skipped")
+        except Exception as exc:
+            errors.append(f"{pair}: {exc}")
+
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(*[_load_pair(p) for p in pairs]), timeout=55
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(504, detail="Backtest timed out fetching candles.")
+
+    if not candles_by_pair:
+        raise HTTPException(502, detail=f"Could not load candles. {'; '.join(errors)}")
+
+    spread_by_pair = {p: spread_pips for p in candles_by_pair}
+    try:
+        result = await asyncio.wait_for(
+            asyncio.to_thread(
+                run_backtest, candles_by_pair, cfg, spread_by_pair, starting_nav,
+                h1_by_pair or None, 0.5, walk_forward_pct,
+            ),
+            timeout=55,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(504, detail="Backtest computation timed out.")
+
+    result["errors"] = errors
+    result["bars_per_pair"] = bars
+    result["used_live_config"] = {
+        "pairs": cfg.pairs,
+        "risk_pct": cfg.risk_pct,
+        "rr_ratio": cfg.rr_ratio,
+        "min_confidence": cfg.min_confidence,
+        "min_stop_pips": cfg.min_stop_pips,
+        "max_stop_pips": cfg.max_stop_pips,
+        "use_ai_learner": cfg.use_ai_learner,
+        "starting_nav": round(starting_nav, 2),
+    }
+    return result
+
+
+@router.get("/oanda-debug")
+async def oanda_debug(trade_id: str | None = None, since_txn_id: str | None = None, instrument: str | None = None):
+    """Read OANDA's actual side directly (using the running bot's stored creds)
+    to diagnose state/P&L mismatches: live open trades and, optionally, the full
+    record of one trade by ID (state, realizedPL, unrealizedPL)."""
+    state = bot_state
+    if not state.token or not state.account_id:
+        raise HTTPException(400, detail="Bot not running — no stored credentials.")
+
+    out: dict = {}
+    try:
+        open_trades = await asyncio.to_thread(
+            oanda.get_open_trades, state.token, state.account_id, state.base_url
+        )
+        out["oanda_open_trades"] = [
+            {
+                "id": t.get("id"),
+                "instrument": t.get("instrument"),
+                "currentUnits": t.get("currentUnits"),
+                "price": t.get("price"),
+                "unrealizedPL": t.get("unrealizedPL"),
+                "realizedPL": t.get("realizedPL"),
+                "state": t.get("state"),
+            }
+            for t in open_trades
+        ]
+        out["oanda_open_count"] = len(open_trades)
+    except Exception as exc:
+        out["open_trades_error"] = str(exc)
+
+    if trade_id:
+        try:
+            t = await asyncio.to_thread(
+                oanda.get_trade, state.token, state.account_id, trade_id, state.base_url
+            )
+            out["trade_lookup"] = {
+                "id": t.get("id"),
+                "instrument": t.get("instrument"),
+                "state": t.get("state"),
+                "initialUnits": t.get("initialUnits"),
+                "currentUnits": t.get("currentUnits"),
+                "price": t.get("price"),
+                "realizedPL": t.get("realizedPL"),
+                "unrealizedPL": t.get("unrealizedPL"),
+                "closeTime": t.get("closeTime"),
+                "closingTransactionIDs": t.get("closingTransactionIDs"),
+            }
+        except Exception as exc:
+            out["trade_lookup_error"] = str(exc)
+
+    # Account summary — did real money actually move?
+    try:
+        acct = await asyncio.to_thread(
+            oanda.get_account_summary, state.token, state.account_id, state.base_url
+        )
+        out["account"] = {
+            "balance": acct.get("balance"),
+            "NAV": acct.get("NAV"),
+            "currency": acct.get("currency"),
+            "marginRate": acct.get("marginRate"),
+            "marginAvailable": acct.get("marginAvailable"),
+            "marginUsed": acct.get("marginUsed"),
+            "unrealizedPL": acct.get("unrealizedPL"),
+            "openTradeCount": acct.get("openTradeCount"),
+            "openPositionCount": acct.get("openPositionCount"),
+            "pl": acct.get("pl"),  # lifetime realized P&L
+        }
+        # Instrument-level margin rate for the primary pair (account rate can
+        # differ per instrument — this is the one sizing actually hits).
+        try:
+            mr = await asyncio.to_thread(
+                oanda.get_instrument_margin_rate,
+                "EUR_JPY", state.token, state.account_id, state.base_url,
+            )
+            out["eur_jpy_margin_rate"] = mr
+            out["eur_jpy_effective_leverage"] = round(1 / mr, 1) if mr else None
+        except Exception as exc:
+            out["eur_jpy_margin_rate_error"] = str(exc)
+    except Exception as exc:
+        out["account_error"] = str(exc)
+
+    if instrument:
+        try:
+            details = await asyncio.to_thread(
+                oanda.get_instrument_details,
+                instrument, state.token, state.account_id, state.base_url,
+            )
+            out["instrument_details"] = details
+        except Exception as exc:
+            out["instrument_details_error"] = str(exc)
+
+    # Raw transaction lookup — was `trade_id` a FILL or a CANCEL/REJECT?
+    if trade_id:
+        try:
+            txn = await asyncio.to_thread(
+                oanda._request, "GET",
+                f"/accounts/{state.account_id}/transactions/{trade_id}",
+                state.token, state.base_url,
+            )
+            t = txn.get("transaction", {})
+            out["transaction_lookup"] = {
+                "id": t.get("id"),
+                "type": t.get("type"),
+                "instrument": t.get("instrument"),
+                "units": t.get("units"),
+                "reason": t.get("reason"),
+                "rejectReason": t.get("rejectReason"),
+                "pl": t.get("pl"),
+                "tradeOpened": t.get("tradeOpened"),
+                "tradesClosed": t.get("tradesClosed"),
+            }
+        except Exception as exc:
+            out["transaction_lookup_error"] = str(exc)
+
+    # Full transaction history since an ID — the definitive record of every
+    # order the bot placed and what OANDA did with it (fill/cancel/reject).
+    if since_txn_id:
+        try:
+            txns = await asyncio.to_thread(
+                oanda._request, "GET",
+                f"/accounts/{state.account_id}/transactions/sinceid",
+                state.token, state.base_url, params={"id": since_txn_id},
+            )
+            out["transactions_since"] = [
+                {
+                    "id": t.get("id"),
+                    "time": (t.get("time") or "")[:19],
+                    "type": t.get("type"),
+                    "instrument": t.get("instrument"),
+                    "units": t.get("units"),
+                    "reason": t.get("reason"),
+                    "rejectReason": t.get("rejectReason"),
+                    "pl": t.get("pl"),
+                    "tradeOpened": (t.get("tradeOpened") or {}).get("tradeID"),
+                }
+                for t in txns.get("transactions", [])
+            ]
+        except Exception as exc:
+            out["transactions_since_error"] = str(exc)
+
+    out["bot_state_open"] = [
+        {"trade_id": t.trade_id, "pair": t.pair, "side": t.side, "units": t.units, "status": t.status}
+        for t in state.open_trades
+    ]
+    return out
+
+
+@router.get("/scan-log")
+async def scan_log(limit: int = 100):
+    """Per-scan decision log: why each recent scan did or didn't trade."""
+    entries = list(getattr(bot_state, "scan_log", []))
+    return {"count": len(entries), "entries": entries[-max(1, min(limit, 400)):][::-1]}
 
 
 @router.post("/reset-day")
@@ -458,10 +835,203 @@ async def emergency_close():
     return {"closed": closed, "errors": errors}
 
 
+@router.get("/regime-check")
+async def regime_check():
+    """Diagnose whether the ADX ranging-market gate is getting enough data to
+    be reliable. ADX is a chain of THREE EWM(1/14) smoothings (ATR -> +DM/-DM
+    -> DX -> ADX); the live engine only fetches 100 M5 bars, which may be too
+    thin for the final smoothing to have converged. Compute ADX on the live
+    100-bar window vs. a much longer 1000-bar window and compare — a big gap
+    means the live gate is reading an unreliable/unconverged value and may be
+    under- or over-blocking entries during real chop.
+    """
+    from ..indicators import adx as adx_fn, average_true_range
+
+    state = bot_state
+    if not state.token or not state.account_id:
+        raise HTTPException(400, detail="Bot not running — no stored credentials.")
+
+    cfg = state.config
+    out: dict = {"pairs": []}
+    for pair in cfg.pairs:
+        entry: dict = {"pair": pair}
+        try:
+            df_long = await asyncio.to_thread(
+                oanda.get_candles, pair, state.token, "M5", 1000, state.base_url
+            )
+            df_short = df_long.tail(100)
+
+            adx_short = adx_fn(df_short, 14).dropna()
+            adx_long = adx_fn(df_long, 14).dropna()
+            atr_short = average_true_range(df_short, 14).dropna()
+            atr_long = average_true_range(df_long, 14).dropna()
+
+            entry["adx_100bar_window"] = round(float(adx_short.iloc[-1]), 2) if len(adx_short) else None
+            entry["adx_1000bar_window"] = round(float(adx_long.iloc[-1]), 2) if len(adx_long) else None
+            entry["atr_100bar_window"] = round(float(atr_short.iloc[-1]), 6) if len(atr_short) else None
+            entry["atr_1000bar_window"] = round(float(atr_long.iloc[-1]), 6) if len(atr_long) else None
+            if entry["adx_100bar_window"] is not None and entry["adx_1000bar_window"] is not None:
+                entry["adx_discrepancy"] = round(
+                    entry["adx_100bar_window"] - entry["adx_1000bar_window"], 2
+                )
+            entry["would_ADX_gate_block_at_100bar"] = (
+                entry["adx_100bar_window"] is not None and entry["adx_100bar_window"] < 15
+            )
+            entry["would_ADX_gate_block_at_1000bar"] = (
+                entry["adx_1000bar_window"] is not None and entry["adx_1000bar_window"] < 15
+            )
+        except Exception as exc:
+            entry["error"] = str(exc)
+        out["pairs"].append(entry)
+    return out
+
+
+@router.post("/telegram-test")
+async def telegram_test():
+    """Fire a test Telegram message so you can confirm TELEGRAM_BOT_TOKEN /
+    TELEGRAM_CHAT_ID are configured correctly without waiting for a real trade."""
+    if not telegram._enabled():
+        raise HTTPException(
+            400,
+            detail="Telegram not configured — set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID on Render.",
+        )
+    telegram.send("✅ <b>Test message</b>\nTelegram notifications are wired up correctly.")
+    return {"sent": True}
+
+
 @router.get("/learner-stats")
 async def learner_stats():
     """Return the AI learner's current state: win rate, model activation, feature importances."""
     return trade_learner.stats()
+
+
+@router.post("/learner-replay")
+async def learner_replay(since: str = "2026-07-10", signal_type: str = "mean_reversion"):
+    """Re-feed closed trades from the bot's trade log into the learner.
+
+    Used after a learner reset to restore legitimate history: each closed
+    trade stored its TradeFeatures snapshot at entry (entry_features), so the
+    exact features the learner would have seen can be replayed with the real
+    realized P&L. Filters to `signal_type` so trades from retired strategies
+    stay out. NOT idempotent — calling twice duplicates entries.
+    """
+    replayed, skipped = [], 0
+    for t in bot_state.trades:
+        if t.status != "closed" or not t.entry_features:
+            continue
+        if t.opened_at < since:
+            continue
+        if getattr(t, "pl_unknown", False) or t.realized_pl in (None, 0, 0.0):
+            skipped += 1
+            continue
+        if t.entry_features.get("signal_type") != signal_type:
+            skipped += 1
+            continue
+        try:
+            trade_learner.record(
+                TradeFeatures.from_dict(t.entry_features), float(t.realized_pl)
+            )
+            replayed.append({
+                "opened_at": t.opened_at[:16],
+                "side": t.side,
+                "realized_pl": round(float(t.realized_pl), 2),
+            })
+        except Exception as exc:
+            skipped += 1
+    return {
+        "replayed": len(replayed),
+        "skipped": skipped,
+        "trades": replayed,
+        "learner": trade_learner.stats(),
+    }
+
+
+@router.post("/learner-reset")
+async def learner_reset():
+    """Wipe the AI learner's history and model so it relearns from scratch.
+
+    Use after the cross-pair sizing fix: past trades were taken at the wrong
+    size, so their outcomes shouldn't bias the model going forward. The learner
+    stays ENABLED — it simply starts collecting fresh data from neutral.
+    """
+    discarded = trade_learner.reset()
+    return {
+        "status": "reset",
+        "discarded_trades": discarded,
+        "model_active": False,
+        "trades_until_active": trade_learner.MIN_TRADES,
+    }
+
+
+@router.post("/set-prop-base")
+async def set_prop_base(balance: float):
+    """Explicitly anchor the prop-mode drawdown base balance.
+
+    prop_mode otherwise sets the base to whatever the NAV happens to be when
+    it's first switched on. This pins it to a chosen reference (e.g. the real
+    account inception balance) so the max-drawdown halt measures from there,
+    not from wherever the switch was flipped. Set this BEFORE enabling
+    prop_mode (the engine only auto-fills the base when it is still unset)."""
+    if balance <= 0:
+        raise HTTPException(400, detail="balance must be positive")
+    with bot_state._lock:
+        bot_state.account_start_balance = balance
+    save_state()
+    return {"account_start_balance": bot_state.account_start_balance}
+
+
+@router.post("/reconcile-pl")
+async def reconcile_pl(feed_learner: bool = True):
+    """Recover the real realized P&L for trades the old close-sync bug finalized
+    as an unconfirmed $0 (pl_unknown=True), reading it from OANDA's transaction
+    stream. Corrects each trade record, adjusts today's daily P&L for any that
+    closed in the current session, and (optionally) feeds the recovered outcome
+    to the AI learner — which had been starved of these losses because it skips
+    $0 trades. Idempotent: a trade is only touched while still pl_unknown."""
+    state = bot_state
+    if not state.token or not state.account_id:
+        raise HTTPException(400, detail="Bot not running — no stored credentials.")
+
+    fixed, still_unknown = [], []
+    for trade in state.trades:
+        if not getattr(trade, "pl_unknown", False):
+            continue
+        try:
+            pl = await asyncio.to_thread(
+                oanda.get_realized_pl_from_transactions,
+                state.token, state.account_id, trade.trade_id, state.base_url,
+            )
+        except Exception as exc:
+            still_unknown.append({"trade_id": trade.trade_id, "error": str(exc)})
+            continue
+        if pl is None:
+            still_unknown.append({"trade_id": trade.trade_id, "error": "no closing fill found"})
+            continue
+        with state._lock:
+            trade.realized_pl = pl
+            trade.pl_unknown = False
+            # Only touch today's running P&L if the trade closed this session.
+            if trade.closed_at and state.session_date and \
+                    trade.closed_at[:10] == state.session_date.isoformat():
+                state.daily_pl += pl
+        if feed_learner and trade.entry_features:
+            try:
+                trade_learner.record(TradeFeatures.from_dict(trade.entry_features), float(pl))
+            except Exception:
+                pass
+        fixed.append({
+            "trade_id": trade.trade_id, "pair": trade.pair,
+            "signal_type": trade.entry_features.get("signal_type") if trade.entry_features else None,
+            "recovered_pl": round(pl, 2),
+        })
+    save_state()
+    return {
+        "reconciled": len(fixed),
+        "still_unknown": len(still_unknown),
+        "fixed": fixed,
+        "unresolved": still_unknown,
+        "learner": trade_learner.stats(),
+    }
 
 
 @router.get("/signal")
@@ -471,18 +1041,17 @@ async def current_signal():
     Useful for diagnosing why trades aren't firing: shows what signal the engine
     is computing, its confidence, and which filter would reject it.
     """
-    from datetime import date, timezone
-    from ..autotrader.engine import _evaluate_pair as _real_eval  # noqa: F401 — not used directly
+    from datetime import timezone
     from ..intraday import compute_day_signal
     from ..providers import oanda as _oanda
-    from ..providers import pip as pip_module
-    from ..autotrader.engine import bot_state as _state
+    from .. import pips as pip_module
+    from ..autotrader.state import bot_state as _state
 
     state = _state
     if not state.token or not state.account_id:
         raise HTTPException(400, detail="Bot is not running — start it first to provide credentials.")
 
-    cfg = state.config
+    base_cfg = state.config
     now = datetime.now(timezone.utc)
     ema_min = now.hour * 60 + now.minute
     in_london_open = 7 * 60 <= ema_min < 9 * 60 + 30
@@ -490,7 +1059,8 @@ async def current_signal():
     ema_window_open = in_london_open or in_ny_open
 
     results = []
-    for pair in cfg.pairs:
+    for pair in base_cfg.pairs:
+        cfg = base_cfg.resolved_for(pair)  # apply per-pair profile
         entry: dict = {"pair": pair, "time_utc": now.strftime("%H:%M"), "filters": []}
         try:
             df = await asyncio.to_thread(
@@ -507,6 +1077,10 @@ async def current_signal():
             entry["stop_pips"] = sig.stop_pips
 
             # Report which filters would fire
+            if cfg.active_hours_utc and not cfg.in_active_hours(now.hour):
+                entry["filters"].append(
+                    f"OUTSIDE_ACTIVE_HOURS (now {now.hour:02d} UTC; windows {cfg.active_hours_utc})"
+                )
             if cfg.ema_session_window and not ema_window_open:
                 entry["filters"].append(
                     f"EMA_WINDOW_CLOSED (now {now.strftime('%H:%M')} UTC; open 07:00-09:30, 13:30-15:30)"

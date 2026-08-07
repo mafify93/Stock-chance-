@@ -42,9 +42,6 @@ struct MarketsView: View {
             }
             .navigationTitle("Markets")
             .searchable(text: $query, prompt: "Search pairs, e.g. EUR or JPY")
-            .navigationDestination(for: PairInfo.self) { pair in
-                PairDetailView(pair: pair)
-            }
         }
         .task { await load() }
     }
@@ -73,7 +70,9 @@ private struct PairSection: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             ForEach(pairs) { pair in
-                NavigationLink(value: pair) {
+                NavigationLink {
+                    PairDetailView(pair: pair)
+                } label: {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(pair.display)

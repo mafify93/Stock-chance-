@@ -43,6 +43,11 @@ _PAIR_IDS: dict[str, float] = {
     "USD_JPY": 2.0,
     "EUR_JPY": 3.0,
     "GBP_JPY": 4.0,
+    "CAD_JPY": 5.0,
+    "AUD_JPY": 6.0,
+    "NZD_JPY": 7.0,
+    "CHF_JPY": 8.0,
+    "XAU_USD": 9.0,
 }
 
 _SIGNAL_IDS: dict[str, float] = {
@@ -52,6 +57,10 @@ _SIGNAL_IDS: dict[str, float] = {
     "orb": 3.0,
     "silver_bullet": 4.0,
     "order_block": 5.0,
+    # mean_reversion is the current primary live strategy — it MUST have its
+    # own id. Without this it defaulted to 0.0 and collided with the retired
+    # ema_vwap_rsi, making the two indistinguishable to the model.
+    "mean_reversion": 6.0,
 }
 
 
@@ -154,6 +163,8 @@ class TradeLearner:
                     "model_active": False,
                     "trades_until_active": self.MIN_TRADES,
                     "feature_importances": None,
+                    "known_pairs": sorted(_PAIR_IDS.keys()),
+                    "known_signals": sorted(_SIGNAL_IDS.keys()),
                 }
             wins = sum(e["won"] for e in self._history)
             importances = None
@@ -176,6 +187,8 @@ class TradeLearner:
                 "model_active": self._model is not None,
                 "trades_until_active": max(0, self.MIN_TRADES - total),
                 "feature_importances": importances,
+                "known_pairs": sorted(_PAIR_IDS.keys()),
+                "known_signals": sorted(_SIGNAL_IDS.keys()),
             }
 
     # ── Private ──────────────────────────────────────────────────────────────
@@ -235,6 +248,22 @@ class TradeLearner:
             )
         except Exception as exc:
             log.warning(f"TradeLearner: retrain failed: {exc}")
+
+    def reset(self) -> int:
+        """Wipe all learned history and the trained model, returning to a neutral
+        (untrained) state. Returns the number of trades that were discarded.
+
+        Use after a change that invalidates past outcomes (e.g. the cross-pair
+        sizing fix) so the model relearns only from correctly-sized trades.
+        """
+        with self._lock:
+            discarded = len(self._history)
+            self._history = []
+            self._model = None
+            self._pending_retrain = 0
+            self._save()  # persist the empty history so the reset survives restarts
+        log.info(f"TradeLearner: reset — discarded {discarded} historical trades")
+        return discarded
 
     def _save(self) -> None:
         try:

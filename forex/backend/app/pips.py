@@ -9,14 +9,17 @@ module is the single source of truth for converting between price and pips.
 from __future__ import annotations
 
 # Pairs quoted in JPY (and a few exotics) use 0.01 as one pip instead of
-# the usual 0.0001.
+# the usual 0.0001. Gold (XAU) shares this convention too, as the BASE
+# currency rather than the quote — confirmed via OANDA's own instrument
+# metadata (pipLocation -2, displayPrecision 3), not assumed; a wrong
+# assumption here caused the worst sizing bug in this project's history.
 JPY_QUOTED = ("JPY",)
+_TWO_DECIMAL_PIP_BASE = ("XAU",)
 
 
 def pip_size(pair: str) -> float:
     """Price increment of a single pip for `pair` (e.g. "EUR_USD" -> 0.0001)."""
-    quote = quote_currency(pair)
-    if quote in JPY_QUOTED:
+    if quote_currency(pair) in JPY_QUOTED or base_currency(pair) in _TWO_DECIMAL_PIP_BASE:
         return 0.01
     return 0.0001
 
@@ -24,7 +27,9 @@ def pip_size(pair: str) -> float:
 def price_decimals(pair: str) -> int:
     """How many decimals to display a price with (one more than the pip,
     matching OANDA's fractional-pip pricing)."""
-    return 3 if quote_currency(pair) in JPY_QUOTED else 5
+    if quote_currency(pair) in JPY_QUOTED or base_currency(pair) in _TWO_DECIMAL_PIP_BASE:
+        return 3
+    return 5
 
 
 def base_currency(pair: str) -> str:
@@ -62,23 +67,34 @@ def from_pips(pair: str, pips: float) -> float:
     return pips * pip_size(pair)
 
 
-def pip_value_per_unit(pair: str, price: float = 1.0) -> float:
-    """Approximate value of a one-pip move per unit traded, in USD account terms.
+def pip_value_per_unit(
+    pair: str, price: float = 1.0, quote_to_usd: float | None = None
+) -> float:
+    """Value of a one-pip move per unit traded, in USD account terms.
 
-    For USD-quoted pairs (EUR/USD, GBP/USD, AUD/USD, NZD/USD):
-        pip_value = pip_size  (exact — the USD rate cancels)
-    For USD-based pairs (USD/JPY, USD/CHF, USD/CAD):
-        pip_value = pip_size / spot  (varies with the exchange rate)
-    For cross pairs (EUR/JPY, GBP/JPY, etc.):
-        pip_value ≈ pip_size  (conservative underestimate — OANDA applies the
-        precise cross-rate conversion on fill, so this errs on the safe side
-        by producing slightly smaller unit counts)
+    The exact value is  pip_size × (USD value of one quote-currency unit). When
+    `quote_to_usd` is supplied (the USD value of 1 unit of the quote currency)
+    this is computed precisely for ALL pairs, including crosses:
+
+        EUR/USD  quote=USD  → quote_to_usd 1.0       → 0.0001
+        USD/JPY  quote=JPY  → quote_to_usd 1/USDJPY  → 0.01/USDJPY
+        EUR/JPY  quote=JPY  → quote_to_usd 1/USDJPY  → 0.01/USDJPY  (the fix)
+
+    Without `quote_to_usd` it falls back to a price-only approximation that is
+    correct for USD-quoted and USD-based pairs but WRONG for crosses (returns the
+    raw quote-currency pip size). That legacy path is only safe in the backtest,
+    where the same pip_value is used for both sizing and P&L so the error cancels;
+    the live engine must always pass `quote_to_usd` or it will mis-size crosses
+    by the cross rate (e.g. ~160× too small for EUR/JPY).
     """
+    if quote_to_usd is not None and quote_to_usd > 0:
+        return pip_size(pair) * quote_to_usd
+
     quote = quote_currency(pair)
     base = base_currency(pair)
     if quote == "USD":
         return pip_size(pair)
     if base == "USD" and price > 0:
         return pip_size(pair) / price
-    # Cross pair — approximate; conservative (safer to under-size)
+    # Cross pair, no conversion supplied — legacy approximation (backtest only).
     return pip_size(pair)
