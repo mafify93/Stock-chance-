@@ -411,6 +411,75 @@ async def backtest(req: BacktestRequest):
     return result
 
 
+@router.post("/trend-backtest")
+async def trend_backtest(
+    pairs: str = "XAU_USD",
+    granularity: str = "H4",
+    bars: int = 5000,
+    entry_n: int = 20,
+    exit_n: int = 10,
+    atr_n: int = 14,
+    stop_atr: float = 2.0,
+    ma_n: int = 100,
+    risk_frac: float = 0.01,
+    spread_pips: float = 2.0,
+    walk_forward_pct: float = 0.3,
+):
+    """Higher-timeframe trend-following research (Donchian breakout).
+
+    Fetches `bars` candles at `granularity` (H1/H4/D) — where the 5000-bar cap
+    buys months-to-years of history instead of the M5 window's ~3.5 weeks — and
+    runs the trend simulator per pair, using the bot's stored credentials.
+    Reports R-multiple expectancy, a compounded equity curve, walk-forward, and
+    the top-3-trade concentration so a fragile (few-lucky-trades) result is
+    visible rather than mistaken for an edge. Does NOT touch live config."""
+    state = bot_state
+    if not state.token or not state.account_id:
+        raise HTTPException(400, detail="No stored credentials — start the bot once so it caches your OANDA token.")
+
+    from ..autotrader.trend_research import TrendParams, run_trend_research
+
+    pair_list = [p.strip().upper() for p in pairs.split(",") if p.strip()]
+    bars = max(200, min(bars, 5000))
+    p = TrendParams(
+        entry_n=entry_n, exit_n=exit_n, atr_n=atr_n, stop_atr=stop_atr,
+        ma_n=ma_n, risk_frac=risk_frac, spread_pips=spread_pips,
+    )
+    base_url = state.base_url
+    results: dict = {}
+    errors: list[str] = []
+
+    async def _one(pair: str) -> None:
+        try:
+            df = await asyncio.to_thread(
+                oanda.get_candles, pair, state.token, granularity, bars, base_url
+            )
+            if len(df) < 200:
+                errors.append(f"{pair}: only {len(df)} {granularity} bars")
+                return
+            res = await asyncio.to_thread(run_trend_research, df, pair, p, walk_forward_pct)
+            # Drop the per-trade list from the multi-pair summary to keep it small.
+            res["full"].pop("trades_list", None)
+            if "walk_forward" in res:
+                res["walk_forward"].pop("trades_list", None)
+            results[pair] = res
+        except Exception as exc:
+            errors.append(f"{pair}: {exc}")
+
+    try:
+        await asyncio.wait_for(asyncio.gather(*[_one(p) for p in pair_list]), timeout=110)
+    except asyncio.TimeoutError:
+        raise HTTPException(504, detail="Trend backtest timed out fetching/among pairs.")
+
+    return {
+        "granularity": granularity,
+        "bars_requested": bars,
+        "params": p.__dict__,
+        "results": results,
+        "errors": errors,
+    }
+
+
 @router.post("/backtest-live")
 async def backtest_live(
     bars: int = 3000,
